@@ -1,5 +1,9 @@
 
-$mode = Get-WUServiceManager | Where-Object {$_.IsManaged -eq 'true'} | foreach {$_.ServiceID}
+$mode = Get-WUServiceManager | Where-Object {$_.IsManaged -eq 'true'} | select -last 1
+
+$mode
+
+$type = 'foobar'
 
 switch ( $mode )
 {
@@ -9,4 +13,6 @@ switch ( $mode )
 	default { $type = '-MicrosoftUpdate' }
 }
 
-$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8';Import-Module PSWindowsUpdate; Get-WUList $type | Format-List -Property Title > C:\ProgramData\os_patching\package_updates
+$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+Import-Module PSWindowsUpdate
+Get-WUList $type | Format-List -Property Title > C:\ProgramData\os_patching\package_updates
