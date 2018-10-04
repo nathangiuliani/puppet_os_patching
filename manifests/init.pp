@@ -335,7 +335,7 @@ class os_patching (
       }
 
       if $fact_exec {
-        exec { $fact_cmd:
+        exec { $fact_exec:
           path        => 'C:/Windows/System32/WindowsPowerShell/v1.0',
           refreshonly => true,
           command     => "powershell -executionpolicy remotesigned -file ${fact_cmd}",
