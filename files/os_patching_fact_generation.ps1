@@ -3,7 +3,7 @@ $mode = Get-WUServiceManager | Where-Object {$_.IsManaged -eq 'true'} | select -
 
 $mode
 
-$type = 'foobar'
+$type = '-WindowsUpdate'
 
 switch ( $mode )
 {
