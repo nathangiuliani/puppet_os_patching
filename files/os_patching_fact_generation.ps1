@@ -1,8 +1,9 @@
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 Import-Module PSWindowsUpdate
 
-Get-WUServiceManager | Where-Object {$_.IsManaged -eq 'true'} | ForEach-Object {
-  Write-Host "Insite the loop"
+#Get-WUServiceManager | Where-Object {$_.IsManaged -match 'true'} | ForEach-Object {
+Get-WUServiceManager | Where-Object {$_.IsManaged -match 'false'} | ForEach-Object {
+  Write-Host "Inside the loop"
   Write-Host $_
 	switch ( $_ )
 	{
