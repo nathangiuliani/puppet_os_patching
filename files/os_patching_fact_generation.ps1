@@ -2,7 +2,8 @@ $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 Import-Module PSWindowsUpdate
 
 Get-WUServiceManager | Where-Object {$_.IsManaged -eq 'true'} | ForEach-Object {
-
+  Write-Host "Insite the loop"
+  Write-Host $_
 	switch ( $_ )
 	{
 		'3da21691-e39d-4da6-8a4b-b43877bcb1b7' { Get-WUList | Format-List -Property Title > C:\ProgramData\os_patching\package_updates }
