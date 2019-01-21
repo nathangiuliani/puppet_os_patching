@@ -3,7 +3,7 @@
 require 'rbconfig'
 is_windows = (RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/)
 if is_windows
-  puts 'Cannot run os_patching::clean_cache on Windows'
+  puts 'Cannot run os_patching::refresh_fact on Windows'
   exit 1
 end
 
@@ -55,25 +55,8 @@ def err(code, kind, message, starttime)
   exit(exitcode.to_i)
 end
 
-# Cache the facts
-log.debug 'Gathering facts'
-full_facts, stderr, status = Open3.capture3('/opt/puppetlabs/puppet/bin/puppet', 'facts')
-err(status, 'os_patching/facter', stderr, starttime) if status != 0
-facts = JSON.parse(full_facts)
-
-# Check we are on a supported platform
-unless facts['values']['os']['family'] == 'RedHat' || facts['values']['os']['family'] == 'Debian'
-  err(200, 'os_patching/unsupported_os', 'Unsupported OS', starttime)
-end
-
-clean_cache = if facts['values']['os']['family'] == 'RedHat'
-                'yum clean all'
-              elsif facts['values']['os']['family'] == 'Debian'
-                'apt-get clean'
-              end
-
-# Clean that cache!
-clean_out, stderr, status = Open3.capture3(clean_cache)
-err(status, 'os_patching/clean_cache', stderr, starttime) if status != 0
-output(status, 'Cache cleaned', clean_out, starttime)
-log.info 'Cache cleaned'
+# Update the fact cache
+clean_out, stderr, status = Open3.capture3('/usr/local/bin/os_patching_fact_generation.sh')
+err(status, 'os_patching/fact_cache_update', stderr, starttime) if status != 0
+output(status, 'Patching fact cache updated', clean_out, starttime)
+log.info 'Patching fact cache updated'

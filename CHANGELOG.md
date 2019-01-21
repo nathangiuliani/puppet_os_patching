@@ -1,5 +1,22 @@
 # Changelog
 
+## Release 0.8.0 (2019-01-08)
+
+- Added the `fact_upload` parameter to the os_patching class to control if facts are pushed up when the caches change.  [Required if you're running in masterless](https://github.com/albatrossflavour/puppet_os_patching/issues/106)
+- [Removed the requirement for stdlib 5](https://github.com/albatrossflavour/puppet_os_patching/issues/107)
+- Lots of updates for rubocop
+- Moved to new PDK version
+
+## Release 0.7.1 (2018-12-10)
+
+- Bugfix on the filter code
+
+## Release 0.7.0 (2018-12-10)
+
+- New task to force the fact cache to refresh
+- Some filters for potentially dodgy yum output during fact caching
+- Confine the fact to only run on Windows and Linux
+
 ## Release 0.6.4 (2018-10-03)
 
 - Fix debian cache cleaning command
