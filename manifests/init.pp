@@ -265,10 +265,10 @@ class os_patching (
       refreshonly => true,
       subscribe   => File[
         $fact_cmd,
-        '/var/cache/os_patching',
-        '/var/cache/os_patching/patch_window',
-        '/var/cache/os_patching/reboot_override',
-        '/var/cache/os_patching/blackout_windows',
+        $cache_dir,
+        "${cache_dir}/patch_window",
+        "${cache_dir}/reboot_override",
+        "${cache_dir}/blackout_windows",
       ],
     }
   }
