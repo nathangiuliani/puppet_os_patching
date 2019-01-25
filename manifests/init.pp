@@ -157,7 +157,8 @@ class os_patching (
       $fact_dir            = $cache_dir
       $fact_file           = 'os_patching_windows.ps1'
       $fact_file_full_path = "${fact_dir}/${fact_file}"
-      $fact_cmd            = "${fact_file_full_path} -RefreshFact"
+      $fact_cmd            = "${fact_file_full_path}"
+      $fact_cmd_arguments  = '-RefreshFact"'
     }
     default: { fail('Unsupported OS') }
   }
@@ -333,15 +334,16 @@ class os_patching (
       }
 
       scheduled_task { 'Run patch cache script':
-        ensure  => $ensure,
-        enabled => true,
-        command => $fact_file_full_path,
-        trigger => {
+        ensure    => $ensure,
+        enabled   => true,
+        command   => $fact_file_full_path,
+        arguments => $fact_cmd_arguments,
+        trigger   => {
           schedule         => daily,
           start_time       => '01:00',
           minutes_interval => '60',
         },
-        require => File[$fact_file_full_path],
+        require   => File[$fact_file_full_path],
       }
     }
     default: { fail('Unsupported OS')}
