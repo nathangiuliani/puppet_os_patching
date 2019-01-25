@@ -197,17 +197,18 @@ if ($updateCount -gt 0) {
 
     if ($RefreshFacts) {
         # output list of required updates
-        $updates | Select-Object -ExpandProperty Title | Out-File $updateFile -Force
+        $updates | Select-Object -ExpandProperty Title | Out-File $updateFile -Force -Encoding ascii
 
         # filter to security updates and output
         $updates | Select-Object Title, @{N = "categories"; E = {$_.Categories | Select-Object -expandproperty Name}} | `
-            Where-Object {$_.categories -contains "Security Updates"} | Select-Object -ExpandProperty Title | Out-File $secUpdateFile -Force
+            Where-Object {$_.categories -contains "Security Updates"} | Select-Object -ExpandProperty Title | Out-File $secUpdateFile -Force -Encoding ascii
 
-        Get-Pendingreboot | Out-File $rebootReqdFile -Force
+        Get-Pendingreboot | Out-File $rebootReqdFile -Force -Encoding ascii
 
         #upload facts
+        Write-Verbose "Uploading puppet facts"
         $puppetCmd = Join-Path $env:ProgramFiles -ChildPath "Puppet Labs\Puppet\bin\puppet.bat"
-        & $puppetCmd fact upload
+        & $puppetCmd facts upload
     }
     else {
 
