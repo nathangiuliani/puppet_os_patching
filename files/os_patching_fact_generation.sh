@@ -34,7 +34,7 @@ case $(facter osfamily) in
     SECPKGS=$(apt upgrade -s 2>/dev/null | awk '$1 == "Inst" && /security/ {print $2}')
   ;;
   *)
-    rm $LOCKFILE
+    rm $LOCKFILE 
     exit 1
   ;;
 esac

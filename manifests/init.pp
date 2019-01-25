@@ -24,10 +24,6 @@
 #   Should the deltarpm package be managed by this module on RedHat family nodes?
 #   If `true`, use the parameter `delta_rpm` to determine how it should be manged
 #
-# @param manage_wsus [Boolean]
-#   Should the wsus package be managed by this module on Windows nodes?
-#   If `true`, use the parameter `wsus_source` to determine where to get it from
-#
 # @param delta_rpm
 #   If managed, what should the delta_rpm package set to?
 #
@@ -71,9 +67,6 @@
 #
 # @param ensure
 #   `present` to install scripts, cronjobs, files, etc, `absent` to cleanup a system that previously hosted us
-#
-# @param wsus_source
-#   URL to download the WSUS source from (default to Microsoft's site)
 #
 # @example assign node to 'Week3' patching window, force a reboot and create a blackout window for the end of the year
 #   class { 'os_patching':
@@ -124,7 +117,6 @@ class os_patching (
   Boolean $manage_yum_utils           = false,
   Boolean $manage_delta_rpm           = false,
   Boolean $manage_yum_plugin_security = false,
-  Boolean $manage_wsus                = false,
   Boolean $fact_upload                = true,
   Enum['installed', 'absent', 'purged', 'held', 'latest'] $yum_utils = 'installed',
   Enum['installed', 'absent', 'purged', 'held', 'latest'] $delta_rpm = 'installed',
@@ -138,7 +130,6 @@ class os_patching (
   $patch_cron_weekday                = absent,
   $patch_cron_min                    = fqdn_rand(59),
   Enum['present', 'absent'] $ensure  = 'present',
-  $wsus_source                       = 'https://gallery.technet.microsoft.com/scriptcenter/2d191bcd-3308-4edd-9de2-88dff796b0bc/file/41459/47/PSWindowsUpdate.zip',
 ) {
 
   $fact_exec = $ensure ? {
@@ -148,10 +139,12 @@ class os_patching (
 
   case $::kernel {
     'Linux': {
-      $fact_upload_cmd = '/opt/puppetlabs/bin/puppet facts upload'
-      $cache_dir = '/var/cache/os_patching'
-      $fact_dir = '/usr/local/bin'
-      $fact_file = 'os_patching_fact_generation.sh'
+      $fact_upload_cmd     = '/opt/puppetlabs/bin/puppet facts upload'
+      $cache_dir           = '/var/cache/os_patching'
+      $fact_dir            = '/usr/local/bin'
+      $fact_file           = 'os_patching_fact_generation.sh'
+      $fact_file_full_path = "${fact_dir}/${fact_file}"
+      $fact_cmd            = $fact_file_full_path
       File {
         owner => $patch_data_owner,
         group => $patch_data_group,
@@ -159,15 +152,16 @@ class os_patching (
       }
     }
     'windows': {
-      $fact_upload_cmd = '"C:/Program Files/Puppet Labs/Puppet/bin/puppet.bat" facts upload'
-      $cache_dir = 'C:/ProgramData/os_patching'
-      $fact_dir = $cache_dir
-      $fact_file = 'os_patching_fact_generation.ps1'
+      $fact_upload_cmd     = '"C:/Program Files/Puppet Labs/Puppet/bin/puppet.bat" facts upload'
+      $cache_dir           = 'C:/ProgramData/os_patching'
+      $fact_dir            = $cache_dir
+      $fact_file           = 'os_patching_windows.ps1'
+      $fact_file_full_path = "${fact_dir}/${fact_file}"
+      $fact_cmd            = "${fact_file_full_path} -RefreshFact"
     }
     default: { fail('Unsupported OS') }
   }
 
-  $fact_cmd = "${fact_dir}/${fact_file}"
 
   $fact_upload_exec = $ensure ? {
     'present' => 'os_patching::exec::fact_upload',
@@ -193,7 +187,7 @@ class os_patching (
     force  => true,
   }
 
-  file { $fact_cmd:
+  file { $fact_file_full_path:
     ensure => $ensure_file,
     mode   => '0700',
     source => "puppet:///modules/${module_name}/${fact_file}",
@@ -264,7 +258,7 @@ class os_patching (
       path        => ['/usr/bin','/bin','/sbin','/usr/local/bin'],
       refreshonly => true,
       subscribe   => File[
-        $fact_cmd,
+        $fact_file_full_path,
         $cache_dir,
         "${cache_dir}/patch_window",
         "${cache_dir}/reboot_override",
@@ -304,7 +298,7 @@ class os_patching (
           user        => $patch_data_owner,
           group       => $patch_data_group,
           refreshonly => true,
-          require     => File[$fact_cmd],
+          require     => File[$fact_file_full_path],
         }
       }
 
@@ -317,31 +311,18 @@ class os_patching (
         month    => $patch_cron_month,
         monthday => $patch_cron_monthday,
         weekday  => $patch_cron_weekday,
-        require  => File[$fact_cmd],
+        require  => File[$fact_file_full_path],
       }
 
       cron { 'Cache patching data at reboot':
         ensure  => $ensure,
-        command => $fact_cmd,
+        command => $fact_file_full_path,
         user    => $patch_cron_user,
         special => 'reboot',
-        require => File[$fact_cmd],
+        require => File[$fact_file_full_path],
       }
     }
     'windows': {
-      if $manage_wsus and $ensure == 'present' {
-        include wsus_client
-        include ::archive
-
-        archive {'c:/PSWindowsUpdate.zip':
-          ensure       => present,
-          extract      => true,
-          extract_path => 'c:/windows/system32/WindowsPowerShell/v1.0/Modules',
-          source       => $wsus_source,
-          creates      => 'c:/windows/system32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate/Get-WUList.ps1',
-          cleanup      => true,
-        }
-      }
 
       if $fact_exec {
         exec { $fact_exec:
@@ -354,13 +335,13 @@ class os_patching (
       scheduled_task { 'Run patch cache script':
         ensure  => $ensure,
         enabled => true,
-        command => $fact_cmd,
+        command => $fact_file_full_path,
         trigger => {
           schedule         => daily,
           start_time       => '01:00',
           minutes_interval => '60',
         },
-        require => File[$fact_cmd],
+        require => File[$fact_file_full_path],
       }
     }
     default: { fail('Unsupported OS')}
