@@ -204,6 +204,10 @@ if ($updateCount -gt 0) {
             Where-Object {$_.categories -contains "Security Updates"} | Select-Object -ExpandProperty Title | Out-File $secUpdateFile -Force
 
         Get-Pendingreboot | Out-File $rebootReqdFile -Force
+
+        #upload facts
+        $puppetCmd = Join-Path $env:ProgramFiles -ChildPath "Puppet Labs\Puppet\bin\puppet.bat"
+        & $puppetCmd fact upload
     }
     else {
 
