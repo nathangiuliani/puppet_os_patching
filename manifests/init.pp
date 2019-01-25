@@ -157,7 +157,7 @@ class os_patching (
       $fact_dir            = $cache_dir
       $fact_file           = 'os_patching_windows.ps1'
       $fact_file_full_path = "${fact_dir}/${fact_file}"
-      $fact_cmd            = "${fact_file_full_path}"
+      $fact_cmd            = $fact_file_full_path
       $fact_cmd_arguments  = '-RefreshFact"'
     }
     default: { fail('Unsupported OS') }
