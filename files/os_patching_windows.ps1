@@ -197,13 +197,13 @@ if ($updateCount -gt 0) {
 
     if ($RefreshFacts) {
         # output list of required updates
-        $updates | Select-Object -ExpandProperty Title | Out-File $updateFile -Force -Encoding ascii
+        $updates | Select-Object -ExpandProperty Title | Out-File $updateFile -Encoding ascii
 
         # filter to security updates and output
         $updates | Select-Object Title, @{N = "categories"; E = {$_.Categories | Select-Object -expandproperty Name}} | `
-            Where-Object {$_.categories -contains "Security Updates"} | Select-Object -ExpandProperty Title | Out-File $secUpdateFile -Force -Encoding ascii
+            Where-Object {$_.categories -contains "Security Updates"} | Select-Object -ExpandProperty Title | Out-File $secUpdateFile -Encoding ascii
 
-        Get-Pendingreboot | Out-File $rebootReqdFile -Force -Encoding ascii
+        Get-Pendingreboot | Out-File $rebootReqdFile -Encoding ascii
 
         #upload facts
         Write-Verbose "Uploading puppet facts"
