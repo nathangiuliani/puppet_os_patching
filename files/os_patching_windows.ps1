@@ -2,12 +2,22 @@
 
 [CmdletBinding()]
 param(
+    # refresh fact mode
+    [Parameter(ParameterSetName = "RefreshFacts")]
     [Switch]$RefreshFacts,
-    [Switch]$SecurityOnly,
-    [String]$updateCriteria = "IsInstalled=0 and IsHidden=0"
-)
 
-$VerbosePreference = "continue"
+    # only install security updates
+    [Parameter(ParameterSetName = "InstallUpdates")]
+    [Switch]$SecurityOnly,
+
+    # update criteria
+    [Parameter(ParameterSetName = "InstallUpdates")]
+    [String]$UpdateCriteria = "IsInstalled=0 and IsHidden=0",
+
+    # only install the first x updates
+    [Parameter(ParameterSetName = "InstallUpdates")]
+    [Int32]$OnlyXUpdates
+)
 
 # strict mode
 Set-StrictMode -Version 2
@@ -29,7 +39,7 @@ trap {
     $trapDetails = "Failed due to trap - {0} {1}" -f $_.exception.ToString() , $_.invocationinfo.positionmessage.ToString() 
 
     [PSCustomObject]@{
-        Status = "Failure"
+        Status  = "Failure"
         Details = $trapDetails
     } | ConvertTo-Json
 }
@@ -74,7 +84,7 @@ Function Get-PendingReboot {
     $rebootPending
 }
 
-Function Invoke-RefreshPuppetFacts{
+Function Invoke-RefreshPuppetFacts {
     # refreshes puppet facts used by os_patching module
     # inputs - $UpdateSession - microsoft update session object
     # outpts - none, saves puppet fact files only
@@ -84,7 +94,7 @@ Function Invoke-RefreshPuppetFacts{
     )
     # refresh puppet facts
 
-    Write-Verbose "Refresing puppet facts"
+    Write-Verbose "Refreshing puppet facts"
 
     $allUpdates = Get-UpdateSearch($UpdateSession)
     $securityUpdates = Get-SecurityUpdates($allUpdates)
@@ -94,6 +104,9 @@ Function Invoke-RefreshPuppetFacts{
     $updateFile = Join-Path -Path $dataDir -ChildPath 'package_updates'
     $secUpdateFile = Join-Path -Path $dataDir -ChildPath 'security_package_updates'
     $rebootReqdFile = Join-Path -Path $dataDir -ChildPath  'reboot_required'
+
+    # create os_patching data dir if required
+    if (-not (Test-Path $dataDir)) { [void](New-Item $dataDir -ItemType Directory) }
 
     # output list of required updates
     $allUpdates | Select-Object -ExpandProperty Title | Out-File $updateFile -Encoding ascii
@@ -110,7 +123,7 @@ Function Invoke-RefreshPuppetFacts{
     & $puppetCmd facts upload
 }
 
-Function Get-UpdateSearch{
+Function Get-UpdateSearch {
     # performs an update search
     # inputs: update session
     # outputs: updates from search result
@@ -137,7 +150,7 @@ Function Get-UpdateSearch{
     $updates
 }
 
-Function Get-SecurityUpdates{
+Function Get-SecurityUpdates {
     # filters update list to security only
     # inputs - update list from an update search
     # outputs - filtered list
@@ -149,15 +162,17 @@ Function Get-SecurityUpdates{
     $secUpdates = $Updates | Select-Object Title, @{N = "categories"; E = {$_.Categories | Select-Object -expandproperty Name}} | Where-Object {$_.categories -contains "Security Updates"}
 
     # count them
-    $secUpdateCount = $secUpdates.count
+    if ($secUpdates) {
+        $secUpdateCount = $secUpdates.count
 
-    Write-Verbose "Detected $secUpdateCount security updates are required"
+        Write-Verbose "Detected $secUpdateCount security updates are required"
 
-    # return security updates
-    $secUpdates
+        # return security updates
+        $secUpdates
+    }
 }
 
-Function Invoke-UpdateRun{
+Function Invoke-UpdateRun {
     # perform an update run
     # inputs - update session
     # outputs - update run results
@@ -171,10 +186,15 @@ Function Invoke-UpdateRun{
 
     # filter to security updates if switch parameter is set
     if ($SecurityOnly) {
-        $updatesToInstall = Get-SecurityUpdates -Updates $allUpdates | Select-Object -first 3
+        $updatesToInstall = Get-SecurityUpdates -Updates $allUpdates
     }
     else {
-        $updatesToInstall = $allUpdates | Select-Object -first 3
+        $updatesToInstall = $allUpdates
+    }
+
+    if ($OnlyXUpdates -gt 0) {
+        Write-Verbose "selecting only the first $OnlyXUpdates updates"
+        $updatesToInstall = $updatesToInstall | Select-Object -First $OnlyXUpdates
     }
 
     # get update count
@@ -188,7 +208,8 @@ Function Invoke-UpdateRun{
 
         # Install Updates. Pass (return) output to the pipeline
         Invoke-InstallUpdates -UpdateSession $UpdateSession -UpdatesToInstall $updatesToInstall
-    } else {
+    }
+    else {
         Write-Verbose "No updates required"
 
         # build final result for output
@@ -198,7 +219,7 @@ Function Invoke-UpdateRun{
     }
 }
 
-Function Invoke-DownloadUpdates{
+Function Invoke-DownloadUpdates {
     # download updates if required
     # inputs  - UpdateSession     - update session
     #         - UpdatesToDownload - update collection (of updates to download)
@@ -238,7 +259,7 @@ Function Invoke-DownloadUpdates{
     }
 }
 
-Function Invoke-InstallUpdates{
+Function Invoke-InstallUpdates {
     # install updates
     # inputs  - UpdateSession    - update session
     #         - UpdatesToInstall - update collection (of updates to install)
@@ -304,16 +325,11 @@ Function Invoke-InstallUpdates{
 
     # build final result for output
     [PSCustomObject]@{
-        Status = "Success"
+        Status         = "Success"
         InstallResults = $updateInstallResults
         RebootRequired = Get-PendingReboot
     } 
 }
-
-
-#
-# vars
-#
 
 Write-Verbose "OS_Patching_Windows script started"
 
@@ -323,9 +339,10 @@ $wuSession = Get-WUSession
 if ($RefreshFacts) {
     # refresh facts mode
     Invoke-RefreshPuppetFacts -UpdateSession $wuSession
-} else {
-    # invoke update run    
-    Invoke-UpdateRun -UpdateSession $wuSession
+}
+else {
+    # invoke update run, convert results to JSON and send down the pipeline
+    Invoke-UpdateRun -UpdateSession $wuSession | ConvertTo-Json
 }           
 
 Write-Verbose "OS_Patching_Windows script finished"
