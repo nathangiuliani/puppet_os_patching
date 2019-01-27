@@ -1,15 +1,61 @@
 #!/opt/puppetlabs/puppet/bin/ruby
 
+#windows logging class
+class WinLog
+  def initialize
+      require 'win32-eventlog'
+      
+      #log to send events to
+      windows_log = 'Application'
+
+      #source of event shown in event log
+      @event_source = 'os_patching'
+
+      #add event source if needed
+      #we probably should generate and register an mc file, but the events still show without it
+      Win32::EventLog.add_event_source(:source => windows_log, :key_name => @event_source )
+
+      #create logger
+      @logger = Win32::EventLog.new
+  end
+
+  #match SysLog::Logger event types
+
+  def debug(data)
+      @logger.report_event(:event_type => Win32::EventLog::INFO_TYPE, :data => "Debug: #{data}", :source => @event_source)
+  end
+
+  def error(data)
+      @logger.report_event(:event_type => Win32::EventLog::ERROR_TYPE, :data => data, :source => @event_source)
+  end
+
+  def fatal(data)
+      @logger.report_event(:event_type => Win32::EventLog::ERROR_TYPE, :data => "FATAL: #{data}", :source => @event_source)
+  end
+
+  def info(data)
+      @logger.report_event(:event_type => Win32::EventLog::INFO_TYPE, :data => data, :source => @event_source)
+  end
+
+  def unknown(data)
+      @logger.report_event(:event_type => Win32::EventLog::INFO_TYPE, :data => "Unknown: #{data}", :source => @event_source)
+  end
+
+  def warn(data)
+      @logger.report_event(:event_type => Win32::EventLog::WARN_TYPE, :data => data, :source => @event_source)
+  end
+end
+
 require 'rbconfig'
 is_windows = (RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/)
-if is_windows
-  puts 'Cannot run os_patching::patch_server on Windows'
-  exit 1
-end
+#if is_windows
+#  puts 'Cannot run os_patching::patch_server on Windows'
+#  exit 1
+#end
 
 require 'open3'
 require 'json'
-require 'syslog/logger'
+#require 'syslog/logger'
 require 'time'
 require 'timeout'
 
@@ -17,7 +63,16 @@ $stdout.sync = true
 
 fact_generation = '/usr/local/bin/os_patching_fact_generation.sh'
 
-log = Syslog::Logger.new 'os_patching'
+#log = Syslog::Logger.new 'os_patching'
+
+#create logger
+if is_windows
+  log = WinLog.new
+else
+  require 'syslog/logger'
+  log = Syslog::Logger.new 'os_patching'
+end
+
 starttime = Time.now.iso8601
 BUFFER_SIZE = 4096
 
