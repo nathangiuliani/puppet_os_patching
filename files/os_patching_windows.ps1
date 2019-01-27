@@ -193,7 +193,7 @@ Function Invoke-UpdateRun {
     }
 
     if ($OnlyXUpdates -gt 0) {
-        Write-Verbose "selecting only the first $OnlyXUpdates updates"
+        Write-Verbose "Selecting only the first $OnlyXUpdates updates"
         $updatesToInstall = $updatesToInstall | Select-Object -First $OnlyXUpdates
     }
 
