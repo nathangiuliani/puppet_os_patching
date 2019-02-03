@@ -61,16 +61,20 @@ require 'timeout'
 
 $stdout.sync = true
 
-fact_generation = '/usr/local/bin/os_patching_fact_generation.sh'
 
 #log = Syslog::Logger.new 'os_patching'
 
-#create logger
 if is_windows
+  #create logger
   log = WinLog.new
+  #set fact_generation executable path
+  fact_generation = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file C:/ProgramData/os_patching/os_patching_windows.ps1 -RefreshFact"
 else
+  #create logger
   require 'syslog/logger'
   log = Syslog::Logger.new 'os_patching'
+  #set fact_generation executable path
+  fact_generation = '/usr/local/bin/os_patching_fact_generation.sh'
 end
 
 starttime = Time.now.iso8601
@@ -483,6 +487,10 @@ else
   log.error 'Unsupported OS - exiting'
   err(200, 'os_patching/unsupported_os', 'Unsupported OS', starttime)
 end
+
+
+
+
 
 # Refresh the facts now that we've patched
 log.info 'Running os_patching fact refresh'
