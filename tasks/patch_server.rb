@@ -481,6 +481,29 @@ elsif facts['values']['os']['family'] == 'Debian'
 
   output('Success', reboot, security_only, 'Patching complete', pkg_list, apt_std_out, '', pinned_pkgs, starttime)
   log.info 'Patching complete'
+elsif facts['kernel'] == 'Windows'
+  # we're on windows
+
+  # Are we doing security only patching?
+  security_arg = if security_only == true?
+                   '-SecurityOnly'
+                 else
+                   ''
+                 end
+
+  # build patching command
+  win_patching_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file C:/ProgramData/os_patching/os_patching_windows.ps1 #{security_arg}"
+
+  # run the windows patching script
+  win_std_out, stderr, status = Open3.capture3(win_patching_cmd)
+
+  # report an error if non-zero exit status
+  err(status, 'os_patching/win', stderr, starttime) if status != 0
+
+  # output results
+  # def output(returncode, reboot, security, message, packages_updated, debug, job_id, pinned_packages, starttime)
+  output('Success', reboot, security_only, 'Patching complete', '', win_std_out, '', pinned_pkgs, starttime)
+
 else
   # Only works on Redhat & Debian at the moment
   log.error 'Unsupported OS - exiting'
