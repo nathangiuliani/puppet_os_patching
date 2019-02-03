@@ -1,79 +1,78 @@
 #!/opt/puppetlabs/puppet/bin/ruby
 
-#windows logging class
+# windows logging class
 class WinLog
   def initialize
-      require 'win32-eventlog'
-      
-      #log to send events to
-      windows_log = 'Application'
+    require 'win32-eventlog'
 
-      #source of event shown in event log
-      @event_source = 'os_patching'
+    # log to send events to
+    windows_log = 'Application'
 
-      #add event source if needed
-      #we probably should generate and register an mc file, but the events still show without it
-      Win32::EventLog.add_event_source(:source => windows_log, :key_name => @event_source )
+    # source of event shown in event log
+    @event_source = 'os_patching'
 
-      #create logger
-      @logger = Win32::EventLog.new
+    # add event source if needed
+    # we probably should generate and register an mc file, but the events still show without it
+    Win32::EventLog.add_event_source(:source => windows_log, :key_name => @event_source)
+
+    # create logger
+    @logger = Win32::EventLog.new
   end
 
-  #match SysLog::Logger event types
+  # match SysLog::Logger event types
 
   def debug(data)
-      @logger.report_event(:event_type => Win32::EventLog::INFO_TYPE, :data => "Debug: #{data}", :source => @event_source)
+    @logger.report_event(:event_type => Win32::EventLog::INFO_TYPE, :data => "Debug: #{data}", :source => @event_source)
   end
 
   def error(data)
-      @logger.report_event(:event_type => Win32::EventLog::ERROR_TYPE, :data => data, :source => @event_source)
+    @logger.report_event(:event_type => Win32::EventLog::ERROR_TYPE, :data => data, :source => @event_source)
   end
 
   def fatal(data)
-      @logger.report_event(:event_type => Win32::EventLog::ERROR_TYPE, :data => "FATAL: #{data}", :source => @event_source)
+    @logger.report_event(:event_type => Win32::EventLog::ERROR_TYPE, :data => "FATAL: #{data}", :source => @event_source)
   end
 
   def info(data)
-      @logger.report_event(:event_type => Win32::EventLog::INFO_TYPE, :data => data, :source => @event_source)
+    @logger.report_event(:event_type => Win32::EventLog::INFO_TYPE, :data => data, :source => @event_source)
   end
 
   def unknown(data)
-      @logger.report_event(:event_type => Win32::EventLog::INFO_TYPE, :data => "Unknown: #{data}", :source => @event_source)
+    @logger.report_event(:event_type => Win32::EventLog::INFO_TYPE, :data => "Unknown: #{data}", :source => @event_source)
   end
 
   def warn(data)
-      @logger.report_event(:event_type => Win32::EventLog::WARN_TYPE, :data => data, :source => @event_source)
+    @logger.report_event(:event_type => Win32::EventLog::WARN_TYPE, :data => data, :source => @event_source)
   end
 end
 
 require 'rbconfig'
 is_windows = (RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/)
-#if is_windows
+# if is_windows
 #  puts 'Cannot run os_patching::patch_server on Windows'
 #  exit 1
-#end
+# end
 
 require 'open3'
 require 'json'
-#require 'syslog/logger'
+# require 'syslog/logger'
 require 'time'
 require 'timeout'
 
 $stdout.sync = true
 
-
-#log = Syslog::Logger.new 'os_patching'
+# log = Syslog::Logger.new 'os_patching'
 
 if is_windows
-  #create logger
+  # create logger
   log = WinLog.new
-  #set fact_generation executable path
+  # set fact_generation executable path
   fact_generation = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file C:/ProgramData/os_patching/os_patching_windows.ps1 -RefreshFact"
 else
-  #create logger
+  # create logger
   require 'syslog/logger'
   log = Syslog::Logger.new 'os_patching'
-  #set fact_generation executable path
+  # set fact_generation executable path
   fact_generation = '/usr/local/bin/os_patching_fact_generation.sh'
 end
 
@@ -487,10 +486,6 @@ else
   log.error 'Unsupported OS - exiting'
   err(200, 'os_patching/unsupported_os', 'Unsupported OS', starttime)
 end
-
-
-
-
 
 # Refresh the facts now that we've patched
 log.info 'Running os_patching fact refresh'
