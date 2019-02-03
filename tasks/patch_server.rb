@@ -492,7 +492,7 @@ elsif facts['kernel'] == 'Windows'
                  end
 
   # build patching command
-  win_patching_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file C:/ProgramData/os_patching/os_patching_windows.ps1 #{security_arg}"
+  win_patching_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file C:/ProgramData/os_patching/os_patching_windows.ps1 #{security_arg} -OnlyXUpdates 2"
 
   # run the windows patching script
   win_std_out, stderr, status = Open3.capture3(win_patching_cmd)
