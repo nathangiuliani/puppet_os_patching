@@ -3,7 +3,7 @@
 # windows logging class
 class WinLog
   def initialize
-    require 'win32-eventlog'
+    require 'win32/eventlog'
 
     # log to send events to
     windows_log = 'Application'
