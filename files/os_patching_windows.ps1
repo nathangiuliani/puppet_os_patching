@@ -36,27 +36,29 @@ param(
     [Switch]$RefreshFacts,
 
     # force local method
-    [Parameter(ParameterSetName = "InstallUpdates-local")]
+    [Parameter(ParameterSetName = "InstallUpdates-Forcelocal")]
     [Switch]$ForceLocal,
 
     # force scheduled task method
-    [Parameter(ParameterSetName = "InstallUpdates-SchedTask")]
+    [Parameter(ParameterSetName = "InstallUpdates-ForceSchedTask")]
     [Switch]$ForceSchedTask,
 
     # only install security updates
-    [Parameter(ParameterSetName = "InstallUpdates-local")]
-    [Parameter(ParameterSetName = "InstallUpdates-SchedTask")]
+    [Parameter(ParameterSetName = "InstallUpdates-Forcelocal")]
+    [Parameter(ParameterSetName = "InstallUpdates-ForceSchedTask")]
+    [Parameter(ParameterSetName = "InstallUpdates")]
     [Switch]$SecurityOnly,
 
     # update criteria
-    [Parameter(ParameterSetName = "InstallUpdates-local")]
-    [Parameter(ParameterSetName = "InstallUpdates-SchedTask")]
+    [Parameter(ParameterSetName = "InstallUpdates-Forcelocal")]
+    [Parameter(ParameterSetName = "InstallUpdates-ForceSchedTask")]
     [Parameter(ParameterSetName = "RefreshFacts")]
     [String]$UpdateCriteria = "IsInstalled=0 and IsHidden=0",
 
     # only install the first x updates
-    [Parameter(ParameterSetName = "InstallUpdates-local")]
-    [Parameter(ParameterSetName = "InstallUpdates-SchedTask")]
+    [Parameter(ParameterSetName = "InstallUpdates-Forcelocal")]
+    [Parameter(ParameterSetName = "InstallUpdates-ForceSchedTask")]
+    [Parameter(ParameterSetName = "InstallUpdates")]
     [Int32]$OnlyXUpdates
 )
 
