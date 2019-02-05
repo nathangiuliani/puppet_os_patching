@@ -66,14 +66,18 @@ $stdout.sync = true
 if is_windows
   # create logger
   log = WinLog.new
-  # set fact_generation executable path
-  fact_generation = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file C:/ProgramData/os_patching/os_patching_windows.ps1 -RefreshFact"
+  # set fact_generation_cmd executable path
+  fact_generation_script = "C:/ProgramData/os_patching/os_patching_windows.ps1"
+  fact_generation_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file #{fact_generation_script} -RefreshFact"
+  puppet_cmd = "#{ENV['programfiles']}/Puppet Labs/Puppet/bin/puppet"
 else
   # create logger
   require 'syslog/logger'
   log = Syslog::Logger.new 'os_patching'
-  # set fact_generation executable path
-  fact_generation = '/usr/local/bin/os_patching_fact_generation.sh'
+  # set fact_generation_cmd executable path
+  fact_generation_script = '/usr/local/bin/os_patching_fact_generation_cmd.sh'
+  fact_generation_cmd = fact_generation_script
+  puppet_cmd = '/opt/puppetlabs/puppet/bin/puppet'
 end
 
 starttime = Time.now.iso8601
@@ -223,23 +227,23 @@ end
 # Cache fact data to speed things up
 log.info 'os_patching run started'
 log.debug 'Running os_patching fact refresh'
-unless File.exist? fact_generation
+unless File.exist? fact_generation_script
   err(
     255,
-    "os_patching/#{fact_generation}",
-    "#{fact_generation} does not exist, declare os_patching and run Puppet first",
+    "os_patching/#{fact_generation_script}",
+    "#{fact_generation_script} does not exist, declare os_patching and run Puppet first",
     starttime,
   )
 end
 
 # Cache the facts
 log.debug 'Gathering facts'
-full_facts, stderr, status = Open3.capture3('/opt/puppetlabs/puppet/bin/puppet', 'facts')
+full_facts, stderr, status = Open3.capture3(puppet_cmd, 'facts')
 err(status, 'os_patching/facter', stderr, starttime) if status != 0
 facts = JSON.parse(full_facts)
 
 # Check we are on a supported platform
-unless facts['values']['os']['family'] == 'RedHat' || facts['values']['os']['family'] == 'Debian'
+unless facts['values']['os']['family'] == 'RedHat' || facts['values']['os']['family'] == 'Debian' || facts['values']['os']['family'] == 'windows'
   err(200, 'os_patching/unsupported_os', 'Unsupported OS', starttime)
 end
 
@@ -259,7 +263,7 @@ if params['clean_cache'] && params['clean_cache'] == true
 end
 
 # Refresh the patching fact cache
-_fact_out, stderr, status = Open3.capture3(fact_generation)
+_fact_out, stderr, status = Open3.capture3(fact_generation_cmd)
 err(status, 'os_patching/fact_refresh', stderr, starttime) if status != 0
 
 # Let's figure out the reboot gordian knot
@@ -481,11 +485,11 @@ elsif facts['values']['os']['family'] == 'Debian'
 
   output('Success', reboot, security_only, 'Patching complete', pkg_list, apt_std_out, '', pinned_pkgs, starttime)
   log.info 'Patching complete'
-elsif facts['kernel'] == 'Windows'
+elsif facts['values']['os']['family'] == 'windows'
   # we're on windows
 
   # Are we doing security only patching?
-  security_arg = if security_only == true?
+  security_arg = if security_only == true
                    '-SecurityOnly'
                  else
                    ''
@@ -512,7 +516,7 @@ end
 
 # Refresh the facts now that we've patched
 log.info 'Running os_patching fact refresh'
-_fact_out, stderr, status = Open3.capture3(fact_generation)
+_fact_out, stderr, status = Open3.capture3(fact_generation_cmd)
 err(status, 'os_patching/fact', stderr, starttime) if status != 0
 
 # Reboot if the task has been told to and there is a requirement OR if reboot_override is set to true
