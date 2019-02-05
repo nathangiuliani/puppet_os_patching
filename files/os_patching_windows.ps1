@@ -29,7 +29,7 @@ Install only the first X numbmer of updates. For testing purposes.
 #>
 
 
-[CmdletBinding()]
+[CmdletBinding(defaultparametersetname="InstallUpdates")]
 param(
     # refresh fact mode
     [Parameter(ParameterSetName = "RefreshFacts")]
