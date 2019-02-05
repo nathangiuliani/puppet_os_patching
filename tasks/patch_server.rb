@@ -504,9 +504,27 @@ elsif facts['values']['os']['family'] == 'windows'
   # report an error if non-zero exit status
   err(status, 'os_patching/win', stderr, starttime) if status != 0 || stderr !=''
 
+  # get output file location
+  output_file = ''
+  win_std_out.split("\n").each do |line|
+    matchdata = line.to_s.match(/^##output file is.*/im)    
+    next unless matchdata
+    output_file = matchdata.to_s.sub(/^##output file is /i,'')
+    break
+  end
+
+  # parse output file as json
+  output_data = JSON.parse(File.read(output_file))
+
+  # get update titles only
+  update_titles = Array.new
+  output_data.each do |item|
+      update_titles.push(item["Title"])
+  end
+
   # output results
   # def output(returncode, reboot, security, message, packages_updated, debug, job_id, pinned_packages, starttime)
-  output('Success', reboot, security_only, 'Patching complete', '', win_std_out, '', pinned_pkgs, starttime)
+  output('Success', reboot, security_only, 'Patching complete', update_titles , win_std_out, '', '', starttime)
 
 else
   # Only works on Redhat & Debian at the moment

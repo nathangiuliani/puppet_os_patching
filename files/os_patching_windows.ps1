@@ -533,18 +533,18 @@ $scriptBlock = {
     else {
         # invoke update run, convert results to CSV and send down the pipeline
         $updateRunResults = Invoke-UpdateRun -UpdateSession $wuSession
+
+        # calculate filename for results file
+        $outputFileName = "os_patching_results_{0:yyyy-MM-dd-HH-mm}.json" -f (Get-Date)
+        $outputFilePath = Join-Path -Path $env:temp -ChildPath $outputFileName
+
+        # output as JSON with ASCII encoding which plays nice with puppet etc
+        $updateRunResults | ConvertTo-Json | Out-File $outputFilePath -Encoding ascii
+
+        # we want this one in the pipeline no matter what, so that it's returned as output
+        # from the scheduled task method
+        Write-Output "##Output File is $outputFilePath"
     }
-
-    # calculate filename for results file
-    $outputFileName = "os_patching_results_{0:yyyy-MM-dd-HH-mm}.json" -f (Get-Date)
-    $outputFilePath = Join-Path -Path $env:temp -ChildPath $outputFileName
-
-    # output as JSON with ASCII encoding which plays nice with puppet etc
-    $updateRunResults | ConvertTo-Json | Out-File $outputFilePath -Encoding ascii
-
-    # we want this one in the pipeline no matter what, so that it's returned as output
-    # from the scheduled task method
-    Write-Output "##Output File is $outputFilePath"
 
     Write-Verbose "OS_Patching_Windows scriptblock finished"
 }
