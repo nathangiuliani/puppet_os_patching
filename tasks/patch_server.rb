@@ -66,7 +66,7 @@ $stdout.sync = true
 if is_windows
   # create logger
   log = WinLog.new
-  # set fact_generation_cmd executable path
+  # set fact_generation executable path
   fact_generation_script = "C:/ProgramData/os_patching/os_patching_windows.ps1"
   fact_generation_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file #{fact_generation_script} -RefreshFact"
   puppet_cmd = "#{ENV['programfiles']}/Puppet Labs/Puppet/bin/puppet"
@@ -74,8 +74,8 @@ else
   # create logger
   require 'syslog/logger'
   log = Syslog::Logger.new 'os_patching'
-  # set fact_generation_cmd executable path
-  fact_generation_script = '/usr/local/bin/os_patching_fact_generation_cmd.sh'
+  # set fact_generation executable path
+  fact_generation_script = '/usr/local/bin/os_patching_fact_generation.sh'
   fact_generation_cmd = fact_generation_script
   puppet_cmd = '/opt/puppetlabs/puppet/bin/puppet'
 end
@@ -502,7 +502,7 @@ elsif facts['values']['os']['family'] == 'windows'
   win_std_out, stderr, status = Open3.capture3(win_patching_cmd)
 
   # report an error if non-zero exit status
-  err(status, 'os_patching/win', stderr, starttime) if status != 0
+  err(status, 'os_patching/win', stderr, starttime) if status != 0 || stderr !=''
 
   # output results
   # def output(returncode, reboot, security, message, packages_updated, debug, job_id, pinned_packages, starttime)

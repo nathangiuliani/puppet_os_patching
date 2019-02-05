@@ -364,7 +364,7 @@ $scriptBlock = {
         }
 
         if ($Params.OnlyXUpdates -gt 0) {
-            Write-Verbose "Selecting only the first $Params.OnlyXUpdates updates"
+            Write-Verbose "Selecting only the first $($Params.OnlyXUpdates) updates"
             $updatesToInstall = $updatesToInstall | Select-Object -First $Params.OnlyXUpdates
         }
 
