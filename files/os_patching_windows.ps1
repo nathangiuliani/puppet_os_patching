@@ -29,7 +29,7 @@ Install only the first X numbmer of updates. For testing purposes.
 #>
 
 
-[CmdletBinding(defaultparametersetname="InstallUpdates")]
+[CmdletBinding(defaultparametersetname = "InstallUpdates")]
 param(
     # refresh fact mode
     [Parameter(ParameterSetName = "RefreshFacts")]
@@ -55,6 +55,12 @@ param(
     [Parameter(ParameterSetName = "RefreshFacts")]
     [String]$UpdateCriteria = "IsInstalled=0 and IsHidden=0",
 
+    [Parameter(ParameterSetName = "InstallUpdates-Forcelocal")]
+    [Parameter(ParameterSetName = "InstallUpdates-ForceSchedTask")]
+    [Parameter(ParameterSetName = "InstallUpdates")]
+    [ValidateScript( {Test-Path -IsValid $_})]
+    [String]$ResultFile,
+
     # only install the first x updates
     [Parameter(ParameterSetName = "InstallUpdates-Forcelocal")]
     [Parameter(ParameterSetName = "InstallUpdates-ForceSchedTask")]
@@ -73,30 +79,37 @@ $error.Clear()
 $ErrorActionPreference = "stop"
 
 Function Invoke-AsCommand {
-    Write-Verbose "Running as script block"
+    Write-Host "Running code as a local script block via Invoke-Command"
 
     Invoke-Command -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams    
 }
 
-
 Function Invoke-AsScheduledTask {
     [CmdletBinding()]
     param (
-    [string]$TaskName = "os_patching job",
-    [int32]$WaitMS = 500
+        [string]$TaskName = "os_patching job",
+        [int32]$WaitMS = 500
     )
 
-    Write-Verbose "Registering scheduled task"
+    Write-Host "Running code as a scheduled task"
+
+    if (Get-ScheduledJob $TaskName -ErrorAction SilentlyContinue) { 
+        Write-Verbose "Removing existing scheduled task first"
+        Try {
+            Unregister-ScheduledJob $TaskName
+        }
+        Catch {
+            Write-Error "Unable to remove existing scheduled task, is another copy of this script still running?"
+        }
+    }
+
+    Write-Verbose "Registering scheduled task with a start trigger in 2 seconds time"
 
     # define scheduled task trigger
     $trigger = @{
         Frequency = "Once" # (or Daily, Weekly, AtStartup, AtLogon)
         At        = $(Get-Date).AddSeconds(2) # in 2 seconds time
     }
-
-    #
-    # TODO: pass through verbosepreference
-    #
 
     Register-ScheduledJob -name $TaskName -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams -Trigger $trigger | Out-Null
 
@@ -118,12 +131,22 @@ Function Invoke-AsScheduledTask {
     $taskScheduler.Connect("localhost")
     $psTaskFolder = $taskScheduler.GetFolder("\Microsoft\Windows\PowerShell\ScheduledJobs")
 
-    while ($psTaskFolder.GetTask($TaskName).State -ne 4) {
-        "Task Status: {0} - Waiting another {1}ms for scheduled task to start" -f $taskStates[$psTaskFolder.GetTask($TaskName).State], $WaitMS | Write-Verbose
+    $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+    # wait up to one mintue for the task to start
+    # it can take some time especially on older versions of windows
+    while ($psTaskFolder.GetTask($TaskName).State -ne 4 -and $stopWatch.ElapsedMilliseconds -lt 60000) {
+        Write-Verbose "Task Status: $($taskStates[$psTaskFolder.GetTask($TaskName).State]) - Waiting another $($WaitMS)ms for scheduled task to start"
         Start-Sleep -Milliseconds $WaitMS
     }
 
-    Write-Verbose "Invoking wait-job to wait for job to finish and get job output"
+    Write-Verbose "Invoking wait-job to wait for job to finish and get job output."
+    Write-Verbose "A long pause here means the job is running and we're waiting for results."
+
+    # wait for scheduled task to finish
+    # technically we could get into an endless loop here - but the only way around it is to
+    # set some arbitary limit (e.g. 3 hours) for the maximum length of a task run and then forcefully
+    # terminate the job, which doesn't seem to be a good idea
 
     $job = $null
     while ($null -eq $job) {
@@ -133,58 +156,54 @@ Function Invoke-AsScheduledTask {
         catch [System.Management.Automation.PSArgumentException] {
             # wait-job can't see the job yet, this takes some time
             # so wait a bit longer for wait-job to work!
-            "  Waiting another $($WaitMS)ms for wait-job to pick up the job" | Write-Verbose
+            Write-Verbose "  Waiting another $($WaitMS)ms for wait-job to pick up the job."
             Start-Sleep -Milliseconds $WaitMS
         }
     }
 
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    # rumour has it that it can take a while for the job output to be available
+    # even after wait-job has finished. wait for 30 seconds here. Thanks for this
+    # idea ansible Windows update module!
+    $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    while ($job.Output -eq $null -and $sw.ElapsedMilliseconds -lt 60000) {
-        "Waiting for job output to populate" | Write-Verbose
+    while ($null -eq $job.Output -and $stopWatch.ElapsedMilliseconds -lt 60000) {
+        Write-Verbose "Waiting for job output to populate"
         Start-Sleep -Milliseconds $WaitMS
     }
 
-    Write-Verbose "Deleting scheduled task"
+    Write-Host "Deleting scheduled task"
 
     $running_tasks = @($taskScheduler.GetRunningTasks(0) | Where-Object { $_.Name -eq $TaskName })
     foreach ($task_to_stop in $running_tasks) {
-        "Task seems to be running still, stopping it" | Write-Verbose
+        Write-Verbose "Task still seems to be running, stopping it before unregistering it"
         $task_to_stop.Stop()
     }
 
     Unregister-ScheduledJob $TaskName
 
-    #return job output
-    $job.Output
-
-    #write any verbose output
+    # write any verbose output
+    Write-Verbose "Verbose output from scheduled task follows, this will not be in sync with any non-verbose output"
     $job.Verbose | Write-Verbose
+
+    # return job output to pipeline
+    $job.Output
     
-    #return any error output
+    # return any error output
     $job.Error | Write-Error
 }
 
 # trap
 trap {
     # verbose output for console
-    Write-Verbose "Unhandled exception caught:"
-    Write-Verbose $_.exception.ToString()                                          # Error message
-    Write-Verbose $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
-
-    # JSON output for bolt etc.
-    $trapDetails = "Failed due to trap - {0} {1}" -f $_.exception.ToString() , $_.invocationinfo.positionmessage.ToString() 
-
-    [PSCustomObject]@{
-        Status  = "Failure"
-        Details = $trapDetails
-    } | ConvertTo-Json
+    Write-Host "Unhandled exception caught:"
+    Write-Host $_.exception.ToString()                                          # Error message
+    Write-Host $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
+    exit 200
 }
 
 # script block for local or scheduled task
 # main script code is actually here!
 $scriptBlock = {
-
     [CmdletBinding()]
 
     # one parameter - a psobject containing the actual script arguments!
@@ -199,20 +218,18 @@ $scriptBlock = {
     # Set error action preference to stop. Trap ensures all errors caught
     $ErrorActionPreference = "stop"
 
+    #set verbose and debug preference based on parameters passed
+    $VerbosePreference = $Params.VerbosePreference
+    $DebugPreference = $Params.DebugPreference
+
     # trap
     trap {
         # verbose output for console
-        Write-Verbose "Unhandled exception caught:"
-        Write-Verbose $_.exception.ToString()                                          # Error message
-        Write-Verbose $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
-
-        # JSON output for bolt etc.
-        $trapDetails = "Failed due to trap - {0} {1}" -f $_.exception.ToString() , $_.invocationinfo.positionmessage.ToString() 
-
-        [PSCustomObject]@{
-            Status  = "Failure"
-            Details = $trapDetails
-        } | ConvertTo-Json
+        # use write-output in script block so output is returned
+        Write-Output "Unhandled exception caught:"
+        Write-Output $_.exception.ToString()                                          # Error message
+        Write-Output $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
+        exit 200
     }
 
     #
@@ -227,6 +244,7 @@ $scriptBlock = {
 
     Function Get-WUUpdateCollection {
         #returns a microsoft update update collection object
+        Write-Debug "Get-WUUpdateCollection: Creating update collection object"
         New-Object -ComObject Microsoft.Update.UpdateColl
     }
 
@@ -249,7 +267,7 @@ $scriptBlock = {
         }
         catch {}
  
-        if ($rebootPending) { Write-Verbose "A reboot is required" }
+        if ($rebootPending) { Write-Verbose "Get-PendingReboot: A reboot is required" }
 
         # return result
         $rebootPending
@@ -265,7 +283,7 @@ $scriptBlock = {
         )
         # refresh puppet facts
 
-        Write-Verbose "Refreshing puppet facts"
+        Write-Verbose "Invoke-RefreshPuppetFacts: Refreshing puppet facts"
 
         $allUpdates = Get-UpdateSearch($UpdateSession)
         $securityUpdates = Get-SecurityUpdates($allUpdates)
@@ -289,7 +307,7 @@ $scriptBlock = {
         Get-PendingReboot | Out-File $rebootReqdFile -Encoding ascii
 
         # upload facts
-        Write-Verbose "Uploading puppet facts"
+        Write-Verbose "Invoke-RefreshPuppetFacts: Uploading puppet facts"
         $puppetCmd = Join-Path $env:ProgramFiles -ChildPath "Puppet Labs\Puppet\bin\puppet.bat"
         & $puppetCmd facts upload --color=false
     }
@@ -303,19 +321,19 @@ $scriptBlock = {
             [Parameter(Mandatory = $true)]$UpdateSession
         )
 
-        Write-Verbose "Update search criteria is: $($Params.UpdateCriteria)"
+        Write-Verbose "Get-UpdateSearch: Update search criteria is: $($Params.UpdateCriteria)"
 
         # create update searcher
         $updateSearcher = $UpdateSession.CreateUpdateSearcher()
 
-        Write-Verbose "Performing update search"
+        Write-Verbose "Get-UpdateSearch: Performing update search"
 
         # perform search and select Update property
         $updates = $updateSearcher.Search($Params.UpdateCriteria).Updates
 
-        $updateCount = $updates.count
+        $updateCount = @($updates).count
 
-        Write-Verbose "Detected $updateCount updates are required in total (including security)"
+        Write-Verbose "Get-UpdateSearch: Detected $updateCount updates are required in total (including security)"
 
         # return updates
         $updates
@@ -334,9 +352,9 @@ $scriptBlock = {
 
         # count them
         if ($secUpdates) {
-            $secUpdateCount = $secUpdates.count
+            $secUpdateCount = @($secUpdates).count
 
-            Write-Verbose "Detected $secUpdateCount security updates are required"
+            Write-Verbose "Get-SecurityUpdates: Detected $secUpdateCount security updates are required"
 
             # return security updates
             $secUpdates
@@ -364,7 +382,7 @@ $scriptBlock = {
         }
 
         if ($Params.OnlyXUpdates -gt 0) {
-            Write-Verbose "Selecting only the first $($Params.OnlyXUpdates) updates"
+            Write-Verbose "Invoke-UpdateRun: Selecting only the first $($Params.OnlyXUpdates) updates"
             $updatesToInstall = $updatesToInstall | Select-Object -First $Params.OnlyXUpdates
         }
 
@@ -381,12 +399,9 @@ $scriptBlock = {
             Invoke-InstallUpdates -UpdateSession $UpdateSession -UpdatesToInstall $updatesToInstall
         }
         else {
-            Write-Verbose "No updates required"
+            Write-Verbose "Invoke-UpdateRun: No updates required"
 
-            # build final result for output
-            [PSCustomObject]@{
-                Status = "No updates required"
-            }
+            # return null
         }
     }
 
@@ -413,7 +428,7 @@ $scriptBlock = {
                 [void]$updateDownloadCollection.Add($update) # void stops output to console
             }
 
-            Write-Verbose "Downloading $($updateDownloadCollection.Count) updates"
+            Write-Verbose "Invoke-DownloadUpdates: Downloading $(@($updateDownloadCollection).Count) updates"
 
             # Create update downloader
             $updateDownloader = $updateSession.CreateUpdateDownloader()
@@ -423,10 +438,10 @@ $scriptBlock = {
 
             # and download 'em!
             [void]$updateDownloader.Download()
-            Write-Verbose "Download completed"
+            Write-Verbose "Invoke-DownloadUpdates: Download completed"
         }
         else {
-            Write-Verbose "All updates are already downloaded"
+            Write-Verbose "Invoke-DownloadUpdates: All updates are already downloaded"
         }
     }
 
@@ -444,7 +459,7 @@ $scriptBlock = {
         # get update count
         $updateCount = @($updatesToInstall).count # ensure it's an array so count property exists
 
-        Write-Verbose "Installing $updateCount updates"
+        Write-Verbose "Invoke-InstallUpdates: Installing $updateCount updates"
 
         # create a counter var starting at 1
         $counter = 1
@@ -452,18 +467,21 @@ $scriptBlock = {
         # create blank array for result output
         $updateInstallResults = @()
 
+        # create update collection object
+        $updateInstallCollection = Get-WUUpdateCollection
+
+        # create update installer object
+        $updateInstaller = $updateSession.CreateUpdateInstaller()
+
         foreach ($update in $updatesToInstall) {
 
-            Write-Verbose "Installing update $($counter): $($update.Title)"
+            Write-Verbose "Invoke-InstallUpdates: Installing update $($counter)/$(@($updatesToInstall).Count): $($update.Title)"
 
-            # create update collection...
-            $updateInstallCollection = Get-WUUpdateCollection
+            # clear update collection...
+            $updateInstallCollection.Clear()
 
             # ...Add the current update to it
             [void]$updateInstallCollection.Add($update) # void stops output to console
-
-            # create update installer
-            $updateInstaller = $updateSession.CreateUpdateInstaller()
 
             # Add update collection to the installer
             $updateInstaller.Updates = $updateInstallCollection
@@ -494,12 +512,13 @@ $scriptBlock = {
             $counter++
         }
 
-        # build final result for output
-        [PSCustomObject]@{
-            Status         = "Success"
-            InstallResults = $updateInstallResults
-            RebootRequired = Get-PendingReboot
-        } 
+        # # build final result for output
+        # [PSCustomObject]@{
+        #     Status         = "Success"
+        #     InstallResults = $updateInstallResults
+        #     RebootRequired = Get-PendingReboot
+        # } 
+        $updateInstallResults
     }
 
     Write-Verbose "OS_Patching_Windows scriptblock started"
@@ -512,45 +531,59 @@ $scriptBlock = {
         Invoke-RefreshPuppetFacts -UpdateSession $wuSession
     }
     else {
-        # invoke update run, convert results to JSON and send down the pipeline
-        Invoke-UpdateRun -UpdateSession $wuSession | ConvertTo-Json
-    } 
-    
-    Write-Verbose "OS_Patching_Windows scriptblock finished"
+        # invoke update run, convert results to CSV and send down the pipeline
+        $updateRunResults = Invoke-UpdateRun -UpdateSession $wuSession
+    }
 
+    # calculate filename for results file
+    $outputFileName = "os_patching_results_{0:yyyy-MM-dd-HH-mm}.json" -f (Get-Date)
+    $outputFilePath = Join-Path -Path $env:temp -ChildPath $outputFileName
+
+    # output as JSON with ASCII encoding which plays nice with puppet etc
+    $updateRunResults | ConvertTo-Json | Out-File $outputFilePath -Encoding ascii
+
+    # we want this one in the pipeline no matter what, so that it's returned as output
+    # from the scheduled task method
+    Write-Output "##Output File is $outputFilePath"
+
+    Write-Verbose "OS_Patching_Windows scriptblock finished"
 }
 
 # main code
-Write-Verbose "OS_Patching_Windows script started"
+Write-Host "OS_Patching_Windows script started"
 
 #build parameter PSCustomObject for passing to the scriptblock
-    $scriptBlockParams = [PSCustomObject]@{
-        RefreshFacts   = $RefreshFacts 
-        SecurityOnly   = $SecurityOnly    
-        UpdateCriteria = $UpdateCriteria    
-        OnlyXUpdates   = $OnlyXUpdates
-    }
+$scriptBlockParams = [PSCustomObject]@{
+    RefreshFacts      = $RefreshFacts 
+    SecurityOnly      = $SecurityOnly    
+    UpdateCriteria    = $UpdateCriteria    
+    OnlyXUpdates      = $OnlyXUpdates
+    DebugPreference   = $DebugPreference
+    VerbosePreference = $VerbosePreference
+}
 
-    Write-Verbose "Trying to access the windows update API locally..."
+Write-Verbose "Trying to access the windows update API locally..."
 
-    try {
-        # try to create a windows update downloader
-        (New-Object -ComObject Microsoft.Update.Session).CreateUpdateDownloader() | Out-Null
-        $localSession = $true
-        Write-Verbose "  Accessing the windows update API locally succeeded"
-    } catch [System.Management.Automation.MethodInvocationException] {
-        $localSession = $false
-        Write-Verbose "  Accessing the windows update API locally failed"
-    }
+try {
+    # try to create a windows update downloader
+    (New-Object -ComObject Microsoft.Update.Session).CreateUpdateDownloader() | Out-Null
+    $localSession = $true
+    Write-Verbose "Accessing the windows update API locally succeeded"
+}
+catch [System.Management.Automation.MethodInvocationException] {
+    $localSession = $false
+    Write-Verbose "Accessing the windows update API locally failed"
+}
 
-    # run either in an invoke-command or a scheduled task based on the result above and provided command line parameters
-    # refresh facts is always in an invoke-command as the update search API works in a remote session
-    if ((($localSession -or $ForceLocal) -and -not $ForceSchedTask) -or $RefreshFacts) {
-        if ($ForceLocal) { Write-Verbose "Forced running locally, this may fail if in a remote session" }
-        Invoke-AsCommand
-    } else {
-        if ($ForceSchedTask) { Write-Verbose "Forced running in a scheduled task, this may not be necessary if running in a local session" }
-        Invoke-AsScheduledTask
-    }
+# run either in an invoke-command or a scheduled task based on the result above and provided command line parameters
+# refresh facts is always in an invoke-command as the update search API works in a remote session
+if ((($localSession -or $ForceLocal) -and -not $ForceSchedTask) -or $RefreshFacts) {
+    if ($ForceLocal) { Write-Warning "Forced running locally, this may fail if in a remote session" }
+    Invoke-AsCommand
+}
+else {
+    if ($ForceSchedTask) { Write-Warning "Forced running in a scheduled task, this may not be necessary if running in a local session" }
+    Invoke-AsScheduledTask
+}
 
-Write-Verbose "OS_Patching_Windows script finished"
+Write-Host "OS_Patching_Windows script finished"
