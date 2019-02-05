@@ -47,37 +47,34 @@ class WinLog
 end
 
 require 'rbconfig'
-is_windows = (RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/)
-# if is_windows
-#  puts 'Cannot run os_patching::patch_server on Windows'
-#  exit 1
-# end
-
 require 'open3'
 require 'json'
-# require 'syslog/logger'
 require 'time'
 require 'timeout'
 
+is_windows = (RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/)
+
 $stdout.sync = true
 
-# log = Syslog::Logger.new 'os_patching'
-
 if is_windows
-  # create logger
+  # windows
+  # create windows event logger
   log = WinLog.new
-  # set fact_generation executable path
+  # set paths/commands for windows
   fact_generation_script = "C:/ProgramData/os_patching/os_patching_windows.ps1"
   fact_generation_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file #{fact_generation_script} -RefreshFact"
   puppet_cmd = "#{ENV['programfiles']}/Puppet Labs/Puppet/bin/puppet"
+  shutdown_cmd = 'shutdown /r /t 60 /c "Rebooting due to the installation of updates by os_patching" /d p:2:17'
 else
-  # create logger
+  # not windows
+  # create syslog logger
   require 'syslog/logger'
   log = Syslog::Logger.new 'os_patching'
-  # set fact_generation executable path
+  # set paths/commands for linux
   fact_generation_script = '/usr/local/bin/os_patching_fact_generation.sh'
   fact_generation_cmd = fact_generation_script
   puppet_cmd = '/opt/puppetlabs/puppet/bin/puppet'
+  shutdown_cmd = 'nohup /sbin/shutdown -r +1 2>/dev/null 1>/dev/null &'
 end
 
 starttime = Time.now.iso8601
@@ -498,6 +495,8 @@ elsif facts['values']['os']['family'] == 'windows'
   # build patching command
   win_patching_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file C:/ProgramData/os_patching/os_patching_windows.ps1 #{security_arg} -OnlyXUpdates 2"
 
+  log.info 'Running patching powershell script'
+
   # run the windows patching script
   win_std_out, stderr, status = Open3.capture3(win_patching_cmd)
 
@@ -542,7 +541,7 @@ needs_reboot = reboot_required(facts['values']['os']['family'], facts['values'][
 log.info "reboot_required returning #{needs_reboot}"
 if needs_reboot == true
   log.info 'Rebooting'
-  p1 = fork { system('nohup /sbin/shutdown -r +1 2>/dev/null 1>/dev/null &') }
+  p1 = fork { system(shutdown_cmd) }
   Process.detach(p1)
 end
 log.info 'os_patching run complete'
