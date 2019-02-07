@@ -109,10 +109,10 @@ def err(code, kind, message, starttime)
   shortmsg = message.split("\n").first.chomp
   history(starttime, shortmsg, exitcode, '', '', '')
   log = if is_windows
-    WinLog.new
-  else
-    Syslog::Logger.new 'os_patching'
-  end
+          WinLog.new
+        else
+          Syslog::Logger.new 'os_patching'
+        end
   log.error "ERROR : #{kind} : #{exitcode} : #{message}"
   exit(exitcode.to_i)
 end
