@@ -211,8 +211,12 @@ def err(code, kind, message, starttime)
   puts JSON.pretty_generate(json)
   shortmsg = message.split("\n").first.chomp
   history(starttime, shortmsg, exitcode, '', '', '')
-  syslog = Syslog::Logger.new 'os_patching'
-  syslog.error "ERROR : #{kind} : #{exitcode} : #{message}"
+  log = if is_windows
+    WinLog.new
+  else
+    Syslog::Logger.new 'os_patching'
+  end
+  log.error "ERROR : #{kind} : #{exitcode} : #{message}"
   exit(exitcode.to_i)
 end
 
