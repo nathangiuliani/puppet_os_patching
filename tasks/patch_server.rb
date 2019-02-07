@@ -128,6 +128,52 @@ def run_with_timeout(command, timeout, tick)
   [status, output]
 end
 
+# pending reboot detection function for windows
+def pending_reboot_win
+  # detect if a pending reboot is needed on windows
+  # inputs: none
+  # outputs: true or false based on whether a reboot is needed
+
+  # multi-line string which is the PowerShell scriptblock to look up whether or not a pending reboot is needed
+  # may want to convert this to ruby in the future
+  # note all the escaped characters if attempting to edit this script block
+  # " (double quote) is "\ (double quote backslash)
+  # \ (backslash) is \\ (double backslash)
+  pending_reboot_win_cmd = %{
+      $ErrorActionPreference=\"stop\"
+      $rebootPending = $false
+      if (Get-ChildItem \"HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending\" -EA Ignore) { $rebootPending = $true }
+      if (Get-Item \"HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired\" -EA Ignore) { $rebootPending = $true }
+      if (Get-ItemProperty \"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\" -Name PendingFileRenameOperations -EA Ignore) { $rebootPending = $true }
+      try {
+          $util = [wmiclass]\"\\\\.\\root\\ccm\\clientsdk:CCM_ClientUtilities\"
+          $status = $util.DetermineIfRebootPending()
+          if (($null -ne $status) -and $status.RebootPending) {
+              $rebootPending = $true
+          }
+      }
+      catch {}
+      $rebootPending
+  }
+
+  # encode to base64 as this is the easist way to pass a readable multi-line scriptblock to PowerShell externally
+  encoded_cmd = Base64.strict_encode64(pending_reboot_win_cmd.encode('utf-16le'))
+
+  # execute it and capture the result. this will return true or false in a string
+  pending_reboot_stdout, _stderr, status = Open3.capture3("powershell -NonInteractive -EncodedCommand #{encoded_cmd}")
+  log.debug "pending_reboot_win - result returned from powershell code - #{pending_reboot_stdout}"
+
+  # error if necessary
+  err(status, 'os_patching/pending_reboot_win', stderr, starttime) if status != 0
+
+  # return result
+  if pending_reboot_stdout == 'True'
+    true
+  else
+    false
+  end
+end
+
 # Default output function
 def output(returncode, reboot, security, message, packages_updated, debug, job_id, pinned_packages, starttime)
   endtime = Time.now.iso8601
@@ -206,6 +252,8 @@ def reboot_required(family, release, reboot)
     true
   elsif family == 'Debian'
     false
+  elsif family == 'windows' && reboot == 'smart' && pending_reboot_win == true
+    true
   else
     false
   end
@@ -493,7 +541,7 @@ elsif facts['values']['os']['family'] == 'windows'
                  end
 
   # build patching command
-  win_patching_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file C:/ProgramData/os_patching/os_patching_windows.ps1 #{security_arg} -OnlyXUpdates 2"
+  win_patching_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -NonInteractive -ExecutionPolicy RemoteSigned -File C:/ProgramData/os_patching/os_patching_windows.ps1 #{security_arg} -OnlyXUpdates 2"
 
   log.info 'Running patching powershell script'
 
