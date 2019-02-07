@@ -49,7 +49,6 @@ end
 require 'rbconfig'
 require 'open3'
 require 'json'
-require 'syslog/logger'
 require 'time'
 require 'timeout'
 
