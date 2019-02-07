@@ -52,11 +52,11 @@ require 'json'
 require 'time'
 require 'timeout'
 
-is_windows = (RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/)
+$is_windows = (RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/)
 
 $stdout.sync = true
 
-if is_windows
+if $is_windows
   # windows
   # create windows event logger
   log = WinLog.new
@@ -82,7 +82,11 @@ BUFFER_SIZE = 4096
 
 # Function to write out the history file after patching
 def history(dts, message, code, reboot, security, job)
-  historyfile = '/var/cache/os_patching/run_history'
+  historyfile = if $is_windows
+                  'C:/ProgramData/os_patching/run_history'
+                else
+                  '/var/cache/os_patching/run_history'
+                end
   open(historyfile, 'a') do |f|
     f.puts "#{dts}|#{message}|#{code}|#{reboot}|#{security}|#{job}"
   end
@@ -134,6 +138,8 @@ def pending_reboot_win
   # inputs: none
   # outputs: true or false based on whether a reboot is needed
 
+  require 'base64'
+
   # multi-line string which is the PowerShell scriptblock to look up whether or not a pending reboot is needed
   # may want to convert this to ruby in the future
   # note all the escaped characters if attempting to edit this script block
@@ -160,14 +166,10 @@ def pending_reboot_win
   encoded_cmd = Base64.strict_encode64(pending_reboot_win_cmd.encode('utf-16le'))
 
   # execute it and capture the result. this will return true or false in a string
-  pending_reboot_stdout, _stderr, status = Open3.capture3("powershell -NonInteractive -EncodedCommand #{encoded_cmd}")
-  log.debug "pending_reboot_win - result returned from powershell code - #{pending_reboot_stdout}"
-
-  # error if necessary
-  err(status, 'os_patching/pending_reboot_win', stderr, starttime) if status != 0
+  pending_reboot_stdout, _stderr, _status = Open3.capture3("powershell -NonInteractive -EncodedCommand #{encoded_cmd}")
 
   # return result
-  if pending_reboot_stdout == 'True'
+  if pending_reboot_stdout.split("\n").first.chomp == 'True'
     true
   else
     false
@@ -211,7 +213,7 @@ def err(code, kind, message, starttime)
   puts JSON.pretty_generate(json)
   shortmsg = message.split("\n").first.chomp
   history(starttime, shortmsg, exitcode, '', '', '')
-  log = if is_windows
+  log = if $is_windows
           WinLog.new
         else
           Syslog::Logger.new 'os_patching'
@@ -593,7 +595,11 @@ needs_reboot = reboot_required(facts['values']['os']['family'], facts['values'][
 log.info "reboot_required returning #{needs_reboot}"
 if needs_reboot == true
   log.info 'Rebooting'
-  p1 = fork { system(shutdown_cmd) }
+  p1 = if $is_windows
+         spawn(shutdown_cmd)
+       else
+         fork { system(shutdown_cmd) }
+       end
   Process.detach(p1)
 end
 log.info 'os_patching run complete'
