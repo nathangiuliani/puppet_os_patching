@@ -61,7 +61,7 @@ if is_windows
   # create windows event logger
   log = WinLog.new
   # set paths/commands for windows
-  fact_generation_script = "C:/ProgramData/os_patching/os_patching_windows.ps1"
+  fact_generation_script = 'C:/ProgramData/os_patching/os_patching_windows.ps1'
   fact_generation_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy RemoteSigned -file #{fact_generation_script} -RefreshFact"
   puppet_cmd = "#{ENV['programfiles']}/Puppet Labs/Puppet/bin/puppet"
   shutdown_cmd = 'shutdown /r /t 60 /c "Rebooting due to the installation of updates by os_patching" /d p:2:17'
@@ -501,14 +501,14 @@ elsif facts['values']['os']['family'] == 'windows'
   win_std_out, stderr, status = Open3.capture3(win_patching_cmd)
 
   # report an error if non-zero exit status
-  err(status, 'os_patching/win', stderr, starttime) if status != 0 || stderr !=''
+  err(status, 'os_patching/win', stderr, starttime) if status != 0 || stderr != ''
 
   # get output file location
   output_file = ''
   win_std_out.split("\n").each do |line|
-    matchdata = line.to_s.match(/^##output file is.*/im)    
+    matchdata = line.to_s.match(/^##output file is.*/im)
     next unless matchdata
-    output_file = matchdata.to_s.sub(/^##output file is /i,'')
+    output_file = matchdata.to_s.sub(/^##output file is /i, '')
     break
   end
 
@@ -516,14 +516,14 @@ elsif facts['values']['os']['family'] == 'windows'
   output_data = JSON.parse(File.read(output_file))
 
   # get update titles only
-  update_titles = Array.new
+  update_titles = []
   output_data.each do |item|
-      update_titles.push(item["Title"])
+    update_titles.push(item['Title'])
   end
 
   # output results
   # def output(returncode, reboot, security, message, packages_updated, debug, job_id, pinned_packages, starttime)
-  output('Success', reboot, security_only, 'Patching complete', update_titles , win_std_out, '', '', starttime)
+  output('Success', reboot, security_only, 'Patching complete', update_titles, win_std_out, '', '', starttime)
 
 else
   # Only works on Redhat & Debian at the moment
