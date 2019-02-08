@@ -570,6 +570,9 @@ elsif facts['values']['os']['family'] == 'windows'
   # parse output file as json
   output_data = JSON.parse(File.read(output_file))
 
+  # delete output file as it's no longer needed
+  File.delete(output_file)
+
   # get update titles only
   update_titles = []
   output_data.each do |item|
