@@ -480,7 +480,7 @@ $scriptBlock = {
                 [void]$updateDownloadCollection.Add($update) # void stops output to console
             }
 
-            Add-LogEntry "Downloading $(@($updateDownloadCollection).Count) updates"
+            Add-LogEntry "Downloading $(@($updateDownloadCollection).Count) updates that are not cached locally"
 
             # Create update downloader
             $updateDownloader = $updateSession.CreateUpdateDownloader()
@@ -578,7 +578,7 @@ $scriptBlock = {
     # first, calculate end time based on timeout parameter if it's been provided
     if ($null -ne $Params.Timeout -and $Params.Timeout -ge 1) {
         $endTime = [datetime]::now.AddSeconds($Params.Timeout)
-        Add-LogEntry "Timeout of $($Params.Timeout) provided, target end time for update installation is $endTime"
+        Add-LogEntry "Timeout of $($Params.Timeout) seconds provided. Calculated target end time of update installation window as $endTime"
     }
     else {
         $endTime = $null
