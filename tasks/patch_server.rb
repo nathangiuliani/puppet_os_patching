@@ -204,9 +204,11 @@ def err(code, kind, message, starttime)
     {
       :msg        => "Task exited : #{exitcode}\n#{message}",
       :kind       => kind,
-      :details    => { :exitcode => exitcode },
-      :start_time => starttime,
-      :end_time   => endtime,
+      :details    => {
+        :exitcode => exitcode,
+        :start_time => starttime,
+        :end_time   => endtime,
+      },
     },
   }
 
