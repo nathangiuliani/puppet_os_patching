@@ -547,7 +547,8 @@ elsif facts['values']['os']['family'] == 'windows'
                  end
 
   # build patching command
-  win_patching_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -NonInteractive -ExecutionPolicy RemoteSigned -File C:/ProgramData/os_patching/os_patching_windows.ps1 #{security_arg} -OnlyXUpdates 2"
+  powershell_cmd = "#{ENV['systemroot']}/system32/WindowsPowerShell/v1.0/powershell.exe -NonInteractive -ExecutionPolicy RemoteSigned -File"
+  win_patching_cmd = "#{powershell_cmd} C:/ProgramData/os_patching/os_patching_windows.ps1 #{security_arg} -Timeout #{timeout} -OnlyXUpdates 2"
 
   log.info 'Running patching powershell script'
 

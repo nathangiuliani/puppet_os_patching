@@ -61,6 +61,12 @@ param(
     [ValidateScript( {Test-Path -IsValid $_})]
     [String]$ResultFile,
 
+    # timeout
+    [Parameter(ParameterSetName = "InstallUpdates-Forcelocal")]
+    [Parameter(ParameterSetName = "InstallUpdates-ForceSchedTask")]
+    [Parameter(ParameterSetName = "InstallUpdates")]
+    [int32]$Timeout,
+
     # only install the first x updates
     [Parameter(ParameterSetName = "InstallUpdates-Forcelocal")]
     [Parameter(ParameterSetName = "InstallUpdates-ForceSchedTask")]
@@ -167,7 +173,7 @@ Function Invoke-AsScheduledTask {
     $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
 
     while ($null -eq $job.Output -and $stopWatch.ElapsedMilliseconds -lt 60000) {
-        Write-Verbose "Waiting for job output to populate"
+        Write-Verbose "Waiting another $($WaitMS)ms for job output to populate"
         Start-Sleep -Milliseconds $WaitMS
     }
 
@@ -186,8 +192,8 @@ Function Invoke-AsScheduledTask {
     $job.Verbose | Write-Verbose
 
     # return job output to pipeline
-    $job.Output
-    
+    $job.Output # pipeline
+
     # return any error output
     $job.Error | Write-Error
 }
@@ -198,11 +204,34 @@ trap {
     Write-Host "Unhandled exception caught:"
     Write-Host $_.exception.ToString()                                          # Error message
     Write-Host $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
-    exit 200
+    exit 165
 }
 
-# script block for local or scheduled task
-# main script code is actually here!
+# main script code is  here!
+
+# Script block for invoke-command (local) or scheduled task
+
+# Note that due to the use of a scheduled job, and allowing for compatibility with older
+# versions of windows, we actually can't get the data returned from write-host back. This
+# 'information' stream only exists on newer versions of windows or powershell (unsure of
+# the specifics). Since we can only get pipeline, verbose, warning and debug output, we
+# have our own logging function and call this to capture a nice, clean sequence of events
+# which get "returned". The upstream ruby script that calls this to initiate a patching run
+# includes this as the 'debug' data in the task result. The code also saves a json file with
+# the update results, and outputs this prefixed with '##Output File is'. The ruby script
+# finds this and reads the file to get the list of updates and installation status as required.
+# There may be nicer ways of doing this - e.g. detecting the invoke type and using native
+# write- cmdlets, or detecting the windows version and using the information stream where it
+# exists, however this is probably not necessary. The intended use case for this code is from
+# the os_patching::patch_servers task, which won't return real-time line-by-line updates anyway
+# so having all the output returned after everything is done in this script is really only an
+# issue when developing.
+
+# Also note we pass the script block a pscustomobject with all the relevant script parameters.
+# This is because the registered job method of passing an ordered sequence of arguments, rather
+# than a parameter block is a bit clunky and unreliable. Passing a single argument with parameters
+# in a manipulateable block was found to be more consistent and reliable.
+
 $scriptBlock = {
     [CmdletBinding()]
 
@@ -218,9 +247,14 @@ $scriptBlock = {
     # Set error action preference to stop. Trap ensures all errors caught
     $ErrorActionPreference = "stop"
 
-    #set verbose and debug preference based on parameters passed
+    # set verbose and debug preference based on parameters passed
     $VerbosePreference = $Params.VerbosePreference
     $DebugPreference = $Params.DebugPreference
+
+    # start with empty array for the log
+    # forcing the scope as it's different depending on whether we are using
+    # invoke-command or a scheduled job to execute this script block
+    $script:log = @()
 
     # trap
     trap {
@@ -229,13 +263,33 @@ $scriptBlock = {
         Write-Output "Unhandled exception caught:"
         Write-Output $_.exception.ToString()                                          # Error message
         Write-Output $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
-        exit 200
+        exit 165
     }
 
     #
     # functions
     #
 
+
+    Function Add-LogEntry {
+        # function to add a log entry for our script block
+        # takes the input and adds to a script-scope log variable, which is intended to
+        # be an array
+        # inputs - log entry/entries either on pipeline, as a string or array of strings
+        # outputs - none
+        [CmdletBinding()]
+        param (
+            [parameter(ValueFromRemainingArguments, Mandatory)]
+            [string[]]$logEntry
+        )
+        begin {}
+        process {
+            foreach ($entry in $logEntry) {
+                $script:log += $logEntry
+            }
+        }
+        end {}
+    }
     Function Get-WUSession {
         # returns a microsoft update session object
         Write-Debug "Get-WUSession: Creating update session object"
@@ -267,7 +321,7 @@ $scriptBlock = {
         }
         catch {}
  
-        if ($rebootPending) { Write-Verbose "Get-PendingReboot: A reboot is required" }
+        if ($rebootPending) { Add-LogEntry "A reboot is required" }
 
         # return result
         $rebootPending
@@ -283,7 +337,7 @@ $scriptBlock = {
         )
         # refresh puppet facts
 
-        Write-Verbose "Invoke-RefreshPuppetFacts: Refreshing puppet facts"
+        Add-LogEntry "Refreshing puppet facts"
 
         $allUpdates = Get-UpdateSearch($UpdateSession)
         $securityUpdates = Get-SecurityUpdates($allUpdates)
@@ -307,7 +361,7 @@ $scriptBlock = {
         Get-PendingReboot | Out-File $rebootReqdFile -Encoding ascii
 
         # upload facts
-        Write-Verbose "Invoke-RefreshPuppetFacts: Uploading puppet facts"
+        Add-LogEntry "Uploading puppet facts"
         $puppetCmd = Join-Path $env:ProgramFiles -ChildPath "Puppet Labs\Puppet\bin\puppet.bat"
         & $puppetCmd facts upload --color=false
     }
@@ -321,19 +375,17 @@ $scriptBlock = {
             [Parameter(Mandatory = $true)]$UpdateSession
         )
 
-        Write-Verbose "Get-UpdateSearch: Update search criteria is: $($Params.UpdateCriteria)"
-
         # create update searcher
         $updateSearcher = $UpdateSession.CreateUpdateSearcher()
 
-        Write-Verbose "Get-UpdateSearch: Performing update search"
+        Add-LogEntry "Performing update search with criteria: $($Params.UpdateCriteria)"
 
         # perform search and select Update property
         $updates = $updateSearcher.Search($Params.UpdateCriteria).Updates
 
         $updateCount = @($updates).count
 
-        Write-Verbose "Get-UpdateSearch: Detected $updateCount updates are required in total (including security)"
+        Add-LogEntry "Detected $updateCount updates are required in total (including security)"
 
         # return updates
         $updates
@@ -354,7 +406,7 @@ $scriptBlock = {
         if ($secUpdates) {
             $secUpdateCount = @($secUpdates).count
 
-            Write-Verbose "Get-SecurityUpdates: Detected $secUpdateCount security updates are required"
+            Add-LogEntry "Detected $secUpdateCount of the required updates are security updates"
 
             # return security updates
             $secUpdates
@@ -382,7 +434,7 @@ $scriptBlock = {
         }
 
         if ($Params.OnlyXUpdates -gt 0) {
-            Write-Verbose "Invoke-UpdateRun: Selecting only the first $($Params.OnlyXUpdates) updates"
+            Add-LogEntry "Selecting only the first $($Params.OnlyXUpdates) updates"
             $updatesToInstall = $updatesToInstall | Select-Object -First $Params.OnlyXUpdates
         }
 
@@ -399,7 +451,7 @@ $scriptBlock = {
             Invoke-InstallUpdates -UpdateSession $UpdateSession -UpdatesToInstall $updatesToInstall
         }
         else {
-            Write-Verbose "Invoke-UpdateRun: No updates required"
+            Add-LogEntry "No updates required, no action taken"
 
             # return null
         }
@@ -428,7 +480,7 @@ $scriptBlock = {
                 [void]$updateDownloadCollection.Add($update) # void stops output to console
             }
 
-            Write-Verbose "Invoke-DownloadUpdates: Downloading $(@($updateDownloadCollection).Count) updates"
+            Add-LogEntry "Downloading $(@($updateDownloadCollection).Count) updates"
 
             # Create update downloader
             $updateDownloader = $updateSession.CreateUpdateDownloader()
@@ -438,10 +490,9 @@ $scriptBlock = {
 
             # and download 'em!
             [void]$updateDownloader.Download()
-            Write-Verbose "Invoke-DownloadUpdates: Download completed"
         }
         else {
-            Write-Verbose "Invoke-DownloadUpdates: All updates are already downloaded"
+            Add-LogEntry "All updates are already downloaded"
         }
     }
 
@@ -459,7 +510,7 @@ $scriptBlock = {
         # get update count
         $updateCount = @($updatesToInstall).count # ensure it's an array so count property exists
 
-        Write-Verbose "Invoke-InstallUpdates: Installing $updateCount updates"
+        Add-LogEntry "Installing $updateCount updates"
 
         # create a counter var starting at 1
         $counter = 1
@@ -475,53 +526,64 @@ $scriptBlock = {
 
         foreach ($update in $updatesToInstall) {
 
-            Write-Verbose "Invoke-InstallUpdates: Installing update $($counter)/$(@($updatesToInstall).Count): $($update.Title)"
+            # check if we have time to install updates, e.g. at least 5 minutes left
+            if ([datetime]::now -lt $endTime.AddMinutes(-5)) {
 
-            # clear update collection...
-            $updateInstallCollection.Clear()
+                Add-LogEntry "Installing update $($counter)/$(@($updatesToInstall).Count): $($update.Title)"
 
-            # ...Add the current update to it
-            [void]$updateInstallCollection.Add($update) # void stops output to console
+                # clear update collection...
+                $updateInstallCollection.Clear()
 
-            # Add update collection to the installer
-            $updateInstaller.Updates = $updateInstallCollection
+                # ...Add the current update to it
+                [void]$updateInstallCollection.Add($update) # void stops output to console
 
-            # Install updates and capture result
-            $updateInstallResult = $updateInstaller.Install()
+                # Add update collection to the installer
+                $updateInstaller.Updates = $updateInstallCollection
 
-            # Convert ResultCode to something readable
-            $updateStatus = switch ($updateInstallResult.ResultCode) {
-                0 { "NotStarted" }
-                1 { "InProgress" }
-                2 { "Succeeded" }
-                3 { "SucceededWithErrors" }
-                4 { "Failed" }
-                5 { "Aborted" }
-                default {"unknown"}
+                # Install updates and capture result
+                $updateInstallResult = $updateInstaller.Install()
+
+                # Convert ResultCode to something readable
+                $updateStatus = switch ($updateInstallResult.ResultCode) {
+                    0 { "NotStarted" }
+                    1 { "InProgress" }
+                    2 { "Succeeded" }
+                    3 { "SucceededWithErrors" }
+                    4 { "Failed" }
+                    5 { "Aborted" }
+                    default {"unknown"}
+                }
+
+                # build object with result for this update and add to array
+                $updateInstallResults += [pscustomobject]@{
+                    Title          = $update.Title
+                    Status         = $updateStatus
+                    HResult        = $updateInstallResult.HResult
+                    RebootRequired = $updateInstallResult.RebootRequired
+                }
             }
-
-            # build object with result for this update and add to array
-            $updateInstallResults += [pscustomobject]@{
-                Title          = $update.Title
-                Status         = $updateStatus
-                HResult        = $updateInstallResult.HResult
-                RebootRequired = $updateInstallResult.RebootRequired
+            else {
+                # insufficient time for this update, log an entry
+                Add-LogEntry "Skipping update $($counter)/$(@($updatesToInstall).Count): $($update.Title) due to insufficient time"
             }
-
             # increment counter
-            $counter++
+            $counter++            
         }
-
-        # # build final result for output
-        # [PSCustomObject]@{
-        #     Status         = "Success"
-        #     InstallResults = $updateInstallResults
-        #     RebootRequired = Get-PendingReboot
-        # } 
+        # return results
         $updateInstallResults
     }
 
-    Write-Verbose "OS_Patching_Windows scriptblock started"
+    Add-LogEntry "os_patching_windows scriptblock started"
+
+    # first, calculate end time based on timeout parameter if it's been provided
+    if ($null -ne $Params.Timeout -and $Params.Timeout -ge 1) {
+        $endTime = [datetime]::now.AddSeconds($Params.Timeout)
+        Add-LogEntry "Timeout of $($Params.Timeout) provided, target end time for update installation is $endTime"
+    }
+    else {
+        $endTime = $null
+        Add-LogEntry "No timeout value provided, script will run untill all updates are installed"
+    }
 
     #create update session
     $wuSession = Get-WUSession
@@ -543,14 +605,17 @@ $scriptBlock = {
 
         # we want this one in the pipeline no matter what, so that it's returned as output
         # from the scheduled task method
-        Write-Output "##Output File is $outputFilePath"
+        Add-LogEntry "##Output File is $outputFilePath"
     }
 
-    Write-Verbose "OS_Patching_Windows scriptblock finished"
+    Add-LogEntry "os_patching_windows scriptblock finished"
+
+    # return log
+    $script:log
 }
 
 # main code
-Write-Host "OS_Patching_Windows script started"
+Write-Host "os_patching_windows script started"
 
 #build parameter PSCustomObject for passing to the scriptblock
 $scriptBlockParams = [PSCustomObject]@{
@@ -558,6 +623,7 @@ $scriptBlockParams = [PSCustomObject]@{
     SecurityOnly      = $SecurityOnly    
     UpdateCriteria    = $UpdateCriteria    
     OnlyXUpdates      = $OnlyXUpdates
+    Timeout           = $Timeout
     DebugPreference   = $DebugPreference
     VerbosePreference = $VerbosePreference
 }
@@ -586,4 +652,4 @@ else {
     Invoke-AsScheduledTask
 }
 
-Write-Host "OS_Patching_Windows script finished"
+Write-Host "os_patching_windows script finished"
