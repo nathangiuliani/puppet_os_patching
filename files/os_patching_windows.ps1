@@ -527,45 +527,48 @@ $scriptBlock = {
         foreach ($update in $updatesToInstall) {
 
             # check if we have time to install updates, e.g. at least 5 minutes left
-            if ([datetime]::now -lt $endTime.AddMinutes(-5)) {
-
-                Add-LogEntry "Installing update $($counter)/$(@($updatesToInstall).Count): $($update.Title)"
-
-                # clear update collection...
-                $updateInstallCollection.Clear()
-
-                # ...Add the current update to it
-                [void]$updateInstallCollection.Add($update) # void stops output to console
-
-                # Add update collection to the installer
-                $updateInstaller.Updates = $updateInstallCollection
-
-                # Install updates and capture result
-                $updateInstallResult = $updateInstaller.Install()
-
-                # Convert ResultCode to something readable
-                $updateStatus = switch ($updateInstallResult.ResultCode) {
-                    0 { "NotStarted" }
-                    1 { "InProgress" }
-                    2 { "Succeeded" }
-                    3 { "SucceededWithErrors" }
-                    4 { "Failed" }
-                    5 { "Aborted" }
-                    default {"unknown"}
-                }
-
-                # build object with result for this update and add to array
-                $updateInstallResults += [pscustomobject]@{
-                    Title          = $update.Title
-                    Status         = $updateStatus
-                    HResult        = $updateInstallResult.HResult
-                    RebootRequired = $updateInstallResult.RebootRequired
-                }
+            #
+            # TODO: Be a bit smarter here, perhaps use SCCM's method of estimating 5 minutes
+            # per update and 30 minutes per cumulative update?
+            #
+            if ([datetime]::now -gt $endTime.AddMinutes(-5)) {
+                Add-LogEntry "Skipping remaining updates due to insufficient time"
+                Break
             }
-            else {
-                # insufficient time for this update, log an entry
-                Add-LogEntry "Skipping update $($counter)/$(@($updatesToInstall).Count): $($update.Title) due to insufficient time"
+
+            Add-LogEntry "Installing update $($counter)/$(@($updatesToInstall).Count): $($update.Title)"
+
+            # clear update collection...
+            $updateInstallCollection.Clear()
+
+            # ...Add the current update to it
+            [void]$updateInstallCollection.Add($update) # void stops output to console
+
+            # Add update collection to the installer
+            $updateInstaller.Updates = $updateInstallCollection
+
+            # Install updates and capture result
+            $updateInstallResult = $updateInstaller.Install()
+
+            # Convert ResultCode to something readable
+            $updateStatus = switch ($updateInstallResult.ResultCode) {
+                0 { "NotStarted" }
+                1 { "InProgress" }
+                2 { "Succeeded" }
+                3 { "SucceededWithErrors" }
+                4 { "Failed" }
+                5 { "Aborted" }
+                default {"unknown"}
             }
+
+            # build object with result for this update and add to array
+            $updateInstallResults += [pscustomobject]@{
+                Title          = $update.Title
+                Status         = $updateStatus
+                HResult        = $updateInstallResult.HResult
+                RebootRequired = $updateInstallResult.RebootRequired
+            }
+
             # increment counter
             $counter++            
         }
