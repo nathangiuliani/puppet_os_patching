@@ -200,10 +200,11 @@ Function Invoke-AsScheduledTask {
 
 # trap
 trap {
-    # verbose output for console
-    Write-Host "Unhandled exception caught:"
-    Write-Host $_.exception.ToString()                                          # Error message
-    Write-Host $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
+    # using write-error so error goes to stderr which ruby picks up
+    # erroraction continue ensures execution doesn't stop until our controlled exit
+    Write-Error -ErrorAction Continue "Unhandled exception caught in main script:"
+    Write-Error -ErrorAction Continue $_.exception.ToString()                                          # Error message
+    Write-Error -ErrorAction Continue $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
     exit 165
 }
 
@@ -258,12 +259,12 @@ $scriptBlock = {
 
     # trap
     trap {
-        # verbose output for console
-        # use write-output in script block so output is returned
-        Write-Output "Unhandled exception caught:"
-        Write-Output $_.exception.ToString()                                          # Error message
-        Write-Output $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
-        exit 165
+        # using write-error so error goes to stderr which ruby picks up
+        # erroraction continue ensures execution doesn't stop until our controlled exit
+        Write-Error -ErrorAction Continue "Unhandled exception caught in scriptblock:"
+        Write-Error -ErrorAction Continue $_.exception.ToString()                                          # Error message
+        Write-Error -ErrorAction Continue $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
+        exit 166
     }
 
     #
@@ -639,7 +640,9 @@ try {
     $localSession = $true
     Write-Verbose "Accessing the windows update API locally succeeded"
 }
-catch [System.Management.Automation.MethodInvocationException] {
+catch [System.Management.Automation.MethodInvocationException],[System.UnauthorizedAccessException] {
+    # first exception type seems to be thrown in earlier versions of windows
+    # second in the later (e.g. 2016)
     $localSession = $false
     Write-Verbose "Accessing the windows update API locally failed"
 }
