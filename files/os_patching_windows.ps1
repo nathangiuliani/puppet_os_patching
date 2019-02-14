@@ -433,6 +433,7 @@ $scriptBlock = {
 
         # filter to security updates if switch parameter is set
         if ($Params.SecurityOnly) {
+            Add-LogEntry "Only installing updates that include the security update classification"
             $updatesToInstall = Get-SecurityUpdates -Updates $allUpdates
         }
         else {
