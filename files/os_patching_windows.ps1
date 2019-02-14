@@ -194,8 +194,12 @@ Function Invoke-AsScheduledTask {
     # return job output to pipeline
     $job.Output # pipeline
 
-    # return any error output
-    $job.Error | Write-Error
+    # return any error output and exit in a controlled fashion
+    if ($job.error) {
+        Write-Error -ErrorAction Continue "Error returned from scriptblock:"
+        $job.Error | Write-Error -ErrorAction Continue
+        exit 166
+    }
 }
 
 # trap
@@ -401,8 +405,9 @@ $scriptBlock = {
             [Parameter(Mandatory = $true)]$Updates
         )
         # filter to security updates
-        $secUpdates = $Updates | Select-Object Title, @{N = "categories"; E = {$_.Categories | Select-Object -expandproperty Name}} | Where-Object {$_.categories -contains "Security Updates"}
-
+        # add a filterable categories parameter, then filter only to updates that include the security classification
+        $secUpdates = $Updates | Add-Member -MemberType ScriptProperty -Name "CategoriesText" -value {$This.Categories | Select-Object -expandproperty Name} -PassThru | Where-Object {$_.CategoriesText -contains "Security Updates"}
+        
         # count them
         if ($secUpdates) {
             $secUpdateCount = @($secUpdates).count
