@@ -585,16 +585,6 @@ $scriptBlock = {
 
     Add-LogEntry "os_patching_windows scriptblock started"
 
-    # first, calculate end time based on timeout parameter if it's been provided
-    if ($null -ne $Params.Timeout -and $Params.Timeout -ge 1) {
-        $endTime = [datetime]::now.AddSeconds($Params.Timeout)
-        Add-LogEntry "Timeout of $($Params.Timeout) seconds provided. Calculated target end time of update installation window as $endTime"
-    }
-    else {
-        $endTime = $null
-        Add-LogEntry "No timeout value provided, script will run untill all updates are installed"
-    }
-
     #create update session
     $wuSession = Get-WUSession
 
@@ -603,6 +593,16 @@ $scriptBlock = {
         Invoke-RefreshPuppetFacts -UpdateSession $wuSession
     }
     else {
+        # first, calculate end time based on timeout parameter if it's been provided
+        if ($null -ne $Params.Timeout -and $Params.Timeout -ge 1) {
+            $endTime = [datetime]::now.AddSeconds($Params.Timeout)
+            Add-LogEntry "Timeout of $($Params.Timeout) seconds provided. Calculated target end time of update installation window as $endTime"
+        }
+        else {
+            $endTime = $null
+            Add-LogEntry "No timeout value provided, script will run until all updates are installed"
+        }
+
         # invoke update run, convert results to CSV and send down the pipeline
         $updateRunResults = Invoke-UpdateRun -UpdateSession $wuSession
 
