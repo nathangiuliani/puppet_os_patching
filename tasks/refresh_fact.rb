@@ -118,6 +118,14 @@ end
 
 # Update the fact cache
 refresh_out, stderr, status = Open3.capture3(fact_generation_cmd)
+
+# make output more readable if on windows
+refresh_out_log = if is_windows
+                    refresh_out.split("\n")
+                  else
+                    refresh_out
+                  end
+
 err(status, 'os_patching/fact_cache_update', stderr, starttime) if status != 0
-output(status, 'Patching fact cache updated', refresh_out, starttime)
+output(status, 'Patching fact cache updated', refresh_out_log, starttime)
 log.info 'Patching fact cache updated'

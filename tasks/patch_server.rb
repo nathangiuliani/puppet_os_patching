@@ -575,15 +575,22 @@ elsif facts['values']['os']['family'] == 'windows'
   # delete output file as it's no longer needed
   File.delete(output_file)
 
-  # get update titles only
-  update_titles = []
-  output_data.each do |item|
-    update_titles.push(item['Title'])
+  # get update titles to return as result
+
+  if output_data.is_a?(Array)
+    # for multiple updates
+    update_titles = []
+    output_data.each do |item|
+      update_titles.push(item['Title'])
+    end
+  else
+    # for a single update... it happens!
+    update_titles = output_data
   end
 
   # output results
   # def output(returncode, reboot, security, message, packages_updated, debug, job_id, pinned_packages, starttime)
-  output('Success', reboot, security_only, 'Patching complete', update_titles, win_std_out, '', '', starttime)
+  output('Success', reboot, security_only, 'Patching complete', update_titles, win_std_out.split("\n"), '', '', starttime)
 
 else
   # Only works on Redhat & Debian at the moment
