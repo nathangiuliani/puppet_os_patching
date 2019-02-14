@@ -145,6 +145,7 @@ class os_patching (
       $fact_file           = 'os_patching_fact_generation.sh'
       $fact_file_full_path = "${fact_dir}/${fact_file}"
       $fact_cmd            = $fact_file_full_path
+      $is_windows          = false
       File {
         owner => $patch_data_owner,
         group => $patch_data_group,
@@ -158,6 +159,7 @@ class os_patching (
       $fact_file           = 'os_patching_windows.ps1'
       $fact_file_full_path = "${fact_dir}/${fact_file}"
       $fact_cmd            = "${fact_file_full_path} -RefreshFact"
+      $is_windows          = true
     }
     default: { fail('Unsupported OS') }
   }
@@ -187,13 +189,23 @@ class os_patching (
     force  => true,
   }
 
-  file { $fact_file_full_path:
-    ensure => $ensure_file,
-    mode   => '0700',
-    source => "puppet:///modules/${module_name}/${fact_file}",
-    notify => Exec[$fact_exec],
+  if (is_windows) {
+    # manage fact file without mode
+    file { $fact_file_full_path:
+      ensure => $ensure_file,
+      source => "puppet:///modules/${module_name}/${fact_file}",
+      notify => Exec[$fact_exec],
+    }
   }
-
+  else {
+    # manage fact file with mode
+    file { $fact_file_full_path:
+      ensure => $ensure_file,
+      mode   => '0700',
+      source => "puppet:///modules/${module_name}/${fact_file}",
+      notify => Exec[$fact_exec],
+    }
+  }
   $patch_window_ensure = ($ensure == 'present' and $patch_window ) ? {
     true    => 'file',
     default => 'absent'
