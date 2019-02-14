@@ -585,7 +585,7 @@ elsif facts['values']['os']['family'] == 'windows'
     end
   else
     # for a single update... it happens!
-    update_titles = output_data
+    update_titles = output_data['Title']
   end
 
   # output results
