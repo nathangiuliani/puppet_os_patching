@@ -345,7 +345,13 @@ $scriptBlock = {
         Add-LogEntry "Refreshing puppet facts"
 
         $allUpdates = Get-UpdateSearch($UpdateSession)
-        $securityUpdates = Get-SecurityUpdates($allUpdates)
+        # providing we got a result above, get a filtered list of security updates
+        if ($null -ne $allUpdates) {
+            $securityUpdates = Get-SecurityUpdates($allUpdates)
+        }
+        else {
+            $securityUpdates = $null
+        }
 
         #paths to facts
         $dataDir = 'C:\ProgramData\os_patching'
@@ -656,7 +662,7 @@ try {
     $localSession = $true
     Write-Verbose "Accessing the windows update API locally succeeded"
 }
-catch [System.Management.Automation.MethodInvocationException],[System.UnauthorizedAccessException] {
+catch [System.Management.Automation.MethodInvocationException], [System.UnauthorizedAccessException] {
     # first exception type seems to be thrown in earlier versions of windows
     # second in the later (e.g. 2016)
     $localSession = $false
