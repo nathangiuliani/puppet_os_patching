@@ -189,7 +189,7 @@ class os_patching (
     force  => true,
   }
 
-  if (is_windows) {
+  if ($is_windows) {
     # manage fact file without mode
     file { $fact_file_full_path:
       ensure => $ensure_file,
