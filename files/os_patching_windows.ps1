@@ -385,8 +385,18 @@ $scriptBlock = {
 
         Add-LogEntry "Performing update search with criteria: $($Params.UpdateCriteria)"
 
-        # perform search and select Update property
-        $updates = $updateSearcher.Search($Params.UpdateCriteria).Updates
+        try {
+            # perform search and select Update property
+            $updates = $updateSearcher.Search($Params.UpdateCriteria).Updates
+        }
+        catch {
+            # exit in a controlled fashion with a helpul error message
+            Write-Error -ErrorAction Continue "Unable to search for updates. Is your update source (e.g. WSUS/WindowsUpdate) available?"
+            Write-Error -ErrorAction Continue $_.exception.ToString()                                          # Error message
+            Write-Error -ErrorAction Continue $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
+            Exit 167
+        }
+        
 
         $updateCount = @($updates).count
 
