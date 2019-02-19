@@ -626,12 +626,17 @@ $scriptBlock = {
         $outputFileName = "os_patching_results_{0:yyyy-MM-dd-HH-mm}.json" -f (Get-Date)
         $outputFilePath = Join-Path -Path $env:temp -ChildPath $outputFileName
 
-        # output as JSON with ASCII encoding which plays nice with puppet etc
-        $updateRunResults | ConvertTo-Json | Out-File $outputFilePath -Encoding ascii
+        if ($null -ne $updateRunResults) {
+            # output as JSON with ASCII encoding which plays nice with puppet etc
+            $updateRunResults | ConvertTo-Json | Out-File $outputFilePath -Encoding ascii
 
-        # we want this one in the pipeline no matter what, so that it's returned as output
-        # from the scheduled task method
-        Add-LogEntry "##Output File is $outputFilePath"
+            # we want this one in the pipeline no matter what, so that it's returned as output
+            # from the scheduled task method
+            Add-LogEntry "##Output File is $outputFilePath"
+        } else {
+            # no results, so no output file
+            Add-LogEntry "##Output File is not applicable"
+        }
     }
 
     Add-LogEntry "os_patching_windows scriptblock finished"

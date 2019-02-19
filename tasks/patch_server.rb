@@ -569,23 +569,28 @@ elsif facts['values']['os']['family'] == 'windows'
     break
   end
 
-  # parse output file as json
-  output_data = JSON.parse(File.read(output_file))
+  if output_file != 'not applicable'
+    # parse output file as json
+    output_data = JSON.parse(File.read(output_file))
 
-  # delete output file as it's no longer needed
-  File.delete(output_file)
+    # delete output file as it's no longer needed
+    File.delete(output_file)
 
-  # get update titles to return as result
+    # get update titles to return as result
 
-  if output_data.is_a?(Array)
-    # for multiple updates
-    update_titles = []
-    output_data.each do |item|
-      update_titles.push(item['Title'])
+    if output_data.is_a?(Array)
+      # for multiple updates
+      update_titles = []
+      output_data.each do |item|
+        update_titles.push(item['Title'])
+      end
+    else
+      # for a single update... it happens!
+      update_titles = output_data['Title']
     end
+
   else
-    # for a single update... it happens!
-    update_titles = output_data['Title']
+    update_titles = ''
   end
 
   # output results
