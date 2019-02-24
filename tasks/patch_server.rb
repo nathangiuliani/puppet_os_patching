@@ -213,7 +213,11 @@ def err(code, kind, message, starttime)
   }
 
   puts JSON.pretty_generate(json)
-  shortmsg = message.split("\n").first.chomp
+
+  messagesplitfirst = message.split("\n").first
+  messagesplitfirst ||= '' # set to empty string if nil
+  shortmsg = messagesplitfirst.chomp
+
   history(starttime, shortmsg, exitcode, '', '', '')
   log = if $is_windows
           WinLog.new
