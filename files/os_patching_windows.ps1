@@ -71,7 +71,11 @@ param(
     [Parameter(ParameterSetName = "InstallUpdates-Forcelocal")]
     [Parameter(ParameterSetName = "InstallUpdates-ForceSchedTask")]
     [Parameter(ParameterSetName = "InstallUpdates")]
-    [Int32]$OnlyXUpdates
+    [Int32]$OnlyXUpdates,
+
+    [String]$LockFile = "$($env:programdata)\os_patching\os_patching_windows.lock",
+
+    [String]$LogFile = "$($env:programdata)\os_patching\os_patching_windows.log"
 )
 
 
@@ -81,8 +85,78 @@ Set-StrictMode -Version 2
 # clear any errors
 $error.Clear()
 
-# Set error action preference to stop. Trap ensures all errors caught
+# Set error action preference to stop. Trap ensures all errors are caught
 $ErrorActionPreference = "stop"
+
+Function Get-LockFile {
+    $lockFileOk = $false
+    # create lock file if it doesn't exist
+    if (Test-Path $LockFile) {
+        Write-Verbose "Lock file found."
+        # if it does exist, check if there is a PID in it
+        $lockFileContent = Get-content $lockfile
+        
+
+        if (@($lockFileContent).count -gt 1) {
+            # more than one line in lock file. this shouldn't be possible
+            # exit in a controlled fashion
+            Write-Error "Error - more than one line in lock file." -ErrorAction Continue
+            Exit 187
+        }
+        else {
+            Write-Verbose "Found PID $lockFileContent in lock file. Checking it"
+            # only one line in lock file
+            # get process matching this PID
+            $process = Get-Process | Where-Object {$_.Id -eq $lockFileContent}
+
+            # if process exists
+            if ($process) {
+                Write-Verbose "Checking process matching PID in lock file"
+                # check the path is powershell
+                if ($process.path -match "powershell.exe") {
+                    # most likely is another copy of this script
+                    Write-Host "Lock file found, it appears PID $($process.id) is another copy of this script. Exiting."
+                    Exit 188
+                }
+            }
+            else {
+                Write-Verbose "No process found matching the PID in lock file"
+                # no process found matching the PID in the lock file
+                # remove it and continue
+                Remove-LockFile
+                $lockFileOk = $true
+            }
+        }
+    } else {
+        # lock file doesn't exist
+        $lockFileOk = $true
+    }
+    
+    Write-Verbose "Lock File OK is $lockFileOk"
+
+    if ($lockFileOk) {
+        # if it isn't, put this execution's PID in the lock file
+        try {
+            $PID | Out-File $LockFile -Force
+        }
+        catch {
+            Write-Error "Error saving lockfile." -ErrorAction Continue
+            Exit 189
+        }
+    }
+}
+
+Function Remove-LockFile {
+    Write-Verbose "Removing lock file"
+    # remove the lock file
+    Try {
+        Remove-Item $LockFile -Force -Confirm:$false
+    }
+    catch {
+        Write-Error "Error removing existsing lockfile." -ErrorAction Continue
+        Exit 190
+    }
+}
 
 Function Invoke-AsCommand {
     Write-Host "Running code as a local script block via Invoke-Command"
@@ -633,7 +707,8 @@ $scriptBlock = {
             # we want this one in the pipeline no matter what, so that it's returned as output
             # from the scheduled task method
             Add-LogEntry "##Output File is $outputFilePath"
-        } else {
+        }
+        else {
             # no results, so no output file
             Add-LogEntry "##Output File is not applicable"
         }
@@ -647,6 +722,9 @@ $scriptBlock = {
 
 # main code
 Write-Host "os_patching_windows script started"
+
+# check and/or create lock file
+Get-Lockfile
 
 #build parameter PSCustomObject for passing to the scriptblock
 $scriptBlockParams = [PSCustomObject]@{
@@ -684,5 +762,8 @@ else {
     if ($ForceSchedTask) { Write-Warning "Forced running in a scheduled task, this may not be necessary if running in a local session" }
     Invoke-AsScheduledTask
 }
+
+# remove lock file
+Remove-LockFile
 
 Write-Host "os_patching_windows script finished"
