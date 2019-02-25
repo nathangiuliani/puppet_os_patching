@@ -365,6 +365,7 @@ $scriptBlock = {
         process {
             foreach ($entry in $logEntry) {
                 $script:log += $logEntry
+                Add-Content -Path $Params.LogFile -Value $entry
             }
         }
         end {}
@@ -735,6 +736,7 @@ $scriptBlockParams = [PSCustomObject]@{
     Timeout           = $Timeout
     DebugPreference   = $DebugPreference
     VerbosePreference = $VerbosePreference
+    LogFile           = $LogFile
 }
 
 Write-Verbose "Trying to access the windows update API locally..."
