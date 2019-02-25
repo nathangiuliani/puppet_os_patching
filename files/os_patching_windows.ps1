@@ -92,7 +92,7 @@ Function Get-LockFile {
     $lockFileOk = $false
     # create lock file if it doesn't exist
     if (Test-Path $LockFile) {
-        Write-Verbose "Lock file found."
+        Add-LogEntry -Output Verbose "Lock file found."
         # if it does exist, check if there is a PID in it
         $lockFileContent = Get-content $lockfile
         
@@ -100,27 +100,27 @@ Function Get-LockFile {
         if (@($lockFileContent).count -gt 1) {
             # more than one line in lock file. this shouldn't be possible
             # exit in a controlled fashion
-            Write-Error "Error - more than one line in lock file." -ErrorAction Continue
+            Add-LogEntry -Output Error "Error - more than one line in lock file."
             Exit 187
         }
         else {
-            Write-Verbose "Found PID $lockFileContent in lock file. Checking it"
+            Add-LogEntry -Output Verbose "Found PID $lockFileContent in lock file. Checking it"
             # only one line in lock file
             # get process matching this PID
             $process = Get-Process | Where-Object {$_.Id -eq $lockFileContent}
 
             # if process exists
             if ($process) {
-                Write-Verbose "Checking process matching PID in lock file"
+                Add-LogEntry -Output Verbose "Checking process matching PID in lock file"
                 # check the path is powershell
                 if ($process.path -match "powershell.exe") {
                     # most likely is another copy of this script
-                    Write-Host "Lock file found, it appears PID $($process.id) is another copy of this script. Exiting."
+                    Add-LogEntry "Lock file found, it appears PID $($process.id) is another copy of this script. Exiting."
                     Exit 188
                 }
             }
             else {
-                Write-Verbose "No process found matching the PID in lock file"
+                Add-LogEntry -Output Verbose "No process found matching the PID in lock file"
                 # no process found matching the PID in the lock file
                 # remove it and continue
                 Remove-LockFile
@@ -132,7 +132,7 @@ Function Get-LockFile {
         $lockFileOk = $true
     }
     
-    Write-Verbose "Lock File OK is $lockFileOk"
+    Add-LogEntry -Output Verbose "Lock File OK is $lockFileOk"
 
     if ($lockFileOk) {
         # if it isn't, put this execution's PID in the lock file
@@ -140,26 +140,26 @@ Function Get-LockFile {
             $PID | Out-File $LockFile -Force
         }
         catch {
-            Write-Error "Error saving lockfile." -ErrorAction Continue
+            Add-LogEntry -Output Error "Error saving lockfile."
             Exit 189
         }
     }
 }
 
 Function Remove-LockFile {
-    Write-Verbose "Removing lock file"
+    Add-LogEntry -Output Verbose "Removing lock file"
     # remove the lock file
     Try {
         Remove-Item $LockFile -Force -Confirm:$false
     }
     catch {
-        Write-Error "Error removing existsing lockfile." -ErrorAction Continue
+        Add-LogEntry -Output Error "Error removing existsing lockfile." -ErrorAction Continue
         Exit 190
     }
 }
 
 Function Invoke-AsCommand {
-    Write-Host "Running code as a local script block via Invoke-Command"
+    Add-LogEntry "Running code as a local script block via Invoke-Command"
 
     Invoke-Command -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams    
 }
@@ -171,19 +171,20 @@ Function Invoke-AsScheduledTask {
         [int32]$WaitMS = 500
     )
 
-    Write-Host "Running code as a scheduled task"
+    Add-LogEntry "Running code as a scheduled task"
 
     if (Get-ScheduledJob $TaskName -ErrorAction SilentlyContinue) { 
-        Write-Verbose "Removing existing scheduled task first"
+        Add-LogEntry -Output Verbose "Removing existing scheduled task first"
         Try {
             Unregister-ScheduledJob $TaskName
         }
         Catch {
-            Write-Error "Unable to remove existing scheduled task, is another copy of this script still running?"
+            Add-LogEntry -Output Error "Unable to remove existing scheduled task, is another copy of this script still running?"
+            Exit 191
         }
     }
 
-    Write-Verbose "Registering scheduled task with a start trigger in 2 seconds time"
+    Add-LogEntry -Output Verbose "Registering scheduled task with a start trigger in 2 seconds time"
 
     # define scheduled task trigger
     $trigger = @{
@@ -191,7 +192,7 @@ Function Invoke-AsScheduledTask {
         At        = $(Get-Date).AddSeconds(2) # in 2 seconds time
     }
 
-    Register-ScheduledJob -name $TaskName -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams -Trigger $trigger | Out-Null
+    Register-ScheduledJob -name $TaskName -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams -Trigger $trigger -InitializationScript $commonFunctions | Out-Null
 
     # Task state reference: https://docs.microsoft.com/en-us/windows/desktop/taskschd/registeredtask-state
     $taskStates = @{
@@ -205,7 +206,7 @@ Function Invoke-AsScheduledTask {
     #   https://docs.microsoft.com/en-us/windows/desktop/TaskSchd/task-scheduler-error-and-success-constants
     #   http://www.pgts.com.au/cgi-bin/psql?blog=1803&ndx=b001 (with decimal codes)
 
-    Write-Verbose "Waiting for scheduled task to start"
+    Add-LogEntry -Output Verbose "Waiting for scheduled task to start"
 
     $taskScheduler = New-Object -ComObject Schedule.Service
     $taskScheduler.Connect("localhost")
@@ -216,12 +217,12 @@ Function Invoke-AsScheduledTask {
     # wait up to one mintue for the task to start
     # it can take some time especially on older versions of windows
     while ($psTaskFolder.GetTask($TaskName).State -ne 4 -and $stopWatch.ElapsedMilliseconds -lt 60000) {
-        Write-Verbose "Task Status: $($taskStates[$psTaskFolder.GetTask($TaskName).State]) - Waiting another $($WaitMS)ms for scheduled task to start"
+        Add-LogEntry -Output Verbose "Task Status: $($taskStates[$psTaskFolder.GetTask($TaskName).State]) - Waiting another $($WaitMS)ms for scheduled task to start"
         Start-Sleep -Milliseconds $WaitMS
     }
 
-    Write-Verbose "Invoking wait-job to wait for job to finish and get job output."
-    Write-Verbose "A long pause here means the job is running and we're waiting for results."
+    Add-LogEntry -Output Verbose "Invoking wait-job to wait for job to finish and get job output."
+    Add-LogEntry -Output Verbose "A long pause here means the job is running and we're waiting for results."
 
     # wait for scheduled task to finish
     # technically we could get into an endless loop here - but the only way around it is to
@@ -236,7 +237,7 @@ Function Invoke-AsScheduledTask {
         catch [System.Management.Automation.PSArgumentException] {
             # wait-job can't see the job yet, this takes some time
             # so wait a bit longer for wait-job to work!
-            Write-Verbose "  Waiting another $($WaitMS)ms for wait-job to pick up the job."
+            Add-LogEntry -Output Verbose "  Waiting another $($WaitMS)ms for wait-job to pick up the job."
             Start-Sleep -Milliseconds $WaitMS
         }
     }
@@ -247,16 +248,22 @@ Function Invoke-AsScheduledTask {
     $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
 
     while ($null -eq $job.Output -and $stopWatch.ElapsedMilliseconds -lt 60000) {
-        Write-Verbose "Waiting another $($WaitMS)ms for job output to populate"
+        Add-LogEntry -Output Verbose "Waiting another $($WaitMS)ms for job output to populate"
         Start-Sleep -Milliseconds $WaitMS
     }
 
-    Write-Host "Deleting scheduled task"
+    Add-LogEntry "Deleting scheduled task"
 
     $running_tasks = @($taskScheduler.GetRunningTasks(0) | Where-Object { $_.Name -eq $TaskName })
     foreach ($task_to_stop in $running_tasks) {
-        Write-Verbose "Task still seems to be running, stopping it before unregistering it"
-        $task_to_stop.Stop()
+        Add-LogEntry -Output Verbose "Task still seems to be running, stopping it before unregistering it"
+        try {
+            $task_to_stop.Stop()
+        } catch {
+            # sometimes the task will stop just before we call stop here
+            # catch error and make note of it in the log just in case it's something else
+            Add-LogEntry -Output Verbose "Error caught while stopping scheduled task. Continuing anyway: $($_.exception.ToString())"
+        }
     }
 
     Unregister-ScheduledJob $TaskName
@@ -270,11 +277,92 @@ Function Invoke-AsScheduledTask {
 
     # return any error output and exit in a controlled fashion
     if ($job.error) {
-        Write-Error -ErrorAction Continue "Error returned from scriptblock:"
-        $job.Error | Write-Error -ErrorAction Continue
+        Write-Error "Error returned from scriptblock:"
+        $job.Error | Add-LogEntry -Output Error
         exit 166
     }
 }
+
+$commonFunctions = {
+    Function Add-LogEntry {
+        # function to add a log entry for our script block
+        # takes the input and adds to a script-scope log variable, which is intended to
+        # be an array
+        # inputs - log entry/entries either on pipeline, as a string or array of strings
+        # outputs - none
+
+        [CmdletBinding()]
+        param (
+            [parameter(ValueFromPipeline, Mandatory)]
+            [string[]]$logEntry,
+
+            [ValidateSet('info','error','warning','verbose','debug')]
+            [string]$Output = 'info',
+
+            [switch]$FileOnly
+        )
+        begin {}
+        process {
+            foreach ($entry in $logEntry) {
+                $thisEntry = $entry.split("`n")
+
+                foreach ($line in $thisEntry) {
+                    
+                    if (-not $FileOnly) {
+                        Switch ($Output){
+                            'info' {
+                                $logPrefix = 'INFO:    '
+                                Write-Host $line
+                            }
+                            'error' {
+                                $logPrefix = 'ERROR:   '
+                                Write-Error $line -ErrorAction Continue # so we don't exit here
+                            }
+                            'warning' {
+                                $logPrefix = 'WARNING: '
+                                Write-Warning $line
+                            }
+                            'verbose' {
+                                $logPrefix = 'VERBOSE: '
+                                Write-Verbose $line
+                            }
+                            'debug' {
+                                $logPrefix = 'DEBUG:   '
+                                Write-Debug $line
+                            }
+                        }
+                        
+                        # prefix with date/time and prefix calculated above
+                        $thisEntry = "{0:yyyy-MM-dd HH:mm:ss} {1} {2}" -f (Get-Date), $logPrefix, $line
+                    }
+                    else {
+                        # File only
+                        # no formatting
+                        $thisEntry = $line
+                    }
+                    
+                    # add to script scope variable
+                    if (Test-Path -Path Variable:Script:log) {
+                        $script:log += $logEntry
+                    }
+
+                    # get log file from params object if executing in script block
+                    if (Test-Path -Path Variable:Script:Params) {
+                        $logFile = $Params.LogFile
+                    }
+
+                    # add to log file
+                    Add-Content -Path $logFile -Value $thisEntry
+
+                }
+            }
+        }
+        end {}
+    }
+}
+
+# dot-source common functions so we can use them
+. $commonFunctions
 
 # trap
 trap {
@@ -286,7 +374,7 @@ trap {
     exit 165
 }
 
-# main script code is  here!
+# main script code is here!
 
 # Script block for invoke-command (local) or scheduled task
 
@@ -349,27 +437,6 @@ $scriptBlock = {
     # functions
     #
 
-
-    Function Add-LogEntry {
-        # function to add a log entry for our script block
-        # takes the input and adds to a script-scope log variable, which is intended to
-        # be an array
-        # inputs - log entry/entries either on pipeline, as a string or array of strings
-        # outputs - none
-        [CmdletBinding()]
-        param (
-            [parameter(ValueFromRemainingArguments, Mandatory)]
-            [string[]]$logEntry
-        )
-        begin {}
-        process {
-            foreach ($entry in $logEntry) {
-                $script:log += $logEntry
-                Add-Content -Path $Params.LogFile -Value $entry
-            }
-        }
-        end {}
-    }
     Function Get-WUSession {
         # returns a microsoft update session object
         Write-Debug "Get-WUSession: Creating update session object"
@@ -722,7 +789,8 @@ $scriptBlock = {
 }
 
 # main code
-Write-Host "os_patching_windows script started"
+Add-LogEntry -FileOnly ('-' * 200)
+Add-LogEntry "os_patching_windows script started"
 
 # check and/or create lock file
 Get-Lockfile
@@ -739,33 +807,33 @@ $scriptBlockParams = [PSCustomObject]@{
     LogFile           = $LogFile
 }
 
-Write-Verbose "Trying to access the windows update API locally..."
+Add-LogEntry -Output Verbose "Trying to access the windows update API locally..."
 
 try {
     # try to create a windows update downloader
     (New-Object -ComObject Microsoft.Update.Session).CreateUpdateDownloader() | Out-Null
     $localSession = $true
-    Write-Verbose "Accessing the windows update API locally succeeded"
+    Add-LogEntry -Output Verbose "Accessing the windows update API locally succeeded"
 }
 catch [System.Management.Automation.MethodInvocationException], [System.UnauthorizedAccessException] {
     # first exception type seems to be thrown in earlier versions of windows
     # second in the later (e.g. 2016)
     $localSession = $false
-    Write-Verbose "Accessing the windows update API locally failed"
+    Add-LogEntry -Output Verbose "Accessing the windows update API locally failed"
 }
 
 # run either in an invoke-command or a scheduled task based on the result above and provided command line parameters
 # refresh facts is always in an invoke-command as the update search API works in a remote session
 if ((($localSession -or $ForceLocal) -and -not $ForceSchedTask) -or $RefreshFacts) {
-    if ($ForceLocal) { Write-Warning "Forced running locally, this may fail if in a remote session" }
+    if ($ForceLocal) { Add-LogEntry -Output Warning "Forced running locally, this may fail if in a remote session" }
     Invoke-AsCommand
 }
 else {
-    if ($ForceSchedTask) { Write-Warning "Forced running in a scheduled task, this may not be necessary if running in a local session" }
+    if ($ForceSchedTask) { Add-LogEntry -Output Warning "Forced running in a scheduled task, this may not be necessary if running in a local session" }
     Invoke-AsScheduledTask
 }
 
 # remove lock file
 Remove-LockFile
 
-Write-Host "os_patching_windows script finished"
+Add-LogEntry "os_patching_windows script finished"
