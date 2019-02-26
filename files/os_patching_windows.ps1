@@ -277,8 +277,9 @@ Function Invoke-AsScheduledTask {
 
     # return any error output and exit in a controlled fashion
     if ($job.error) {
-        Write-Error "Error returned from scriptblock:"
+        Write-Error "Error returned from scriptblock:" -ErrorAction Continue
         $job.Error | Add-LogEntry -Output Error
+        Remove-LockFile
         exit 166
     }
 }
@@ -371,6 +372,9 @@ trap {
     Write-Error -ErrorAction Continue "Unhandled exception caught in main script:"
     Write-Error -ErrorAction Continue $_.exception.ToString()                                          # Error message
     Write-Error -ErrorAction Continue $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
+    # remove lockfile
+    Remove-LockFile
+    # exit
     exit 165
 }
 
@@ -696,11 +700,13 @@ $scriptBlock = {
             # TODO: Be a bit smarter here, perhaps use SCCM's method of estimating 5 minutes
             # per update and 30 minutes per cumulative update?
             #
-            if ([datetime]::now -gt $endTime.AddMinutes(-5)) {
-                Add-LogEntry "Skipping remaining updates due to insufficient time"
-                Break
+            if ($null -ne $endTime) {
+                if ([datetime]::now -gt $endTime.AddMinutes(-5)) {
+                    Add-LogEntry "Skipping remaining updates due to insufficient time"
+                    Break
+                }
             }
-
+            
             Add-LogEntry "Installing update $($counter)/$(@($updatesToInstall).Count): $($update.Title)"
 
             # clear update collection...
