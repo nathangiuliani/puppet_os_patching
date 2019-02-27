@@ -29,6 +29,28 @@ Install only the first X numbmer of updates. For testing purposes.
 #>
 
 
+# Note that due to the use of a scheduled job, and allowing for compatibility with older
+# versions of windows, we actually can't get the data returned from write-host back. This
+# 'information' stream only exists on newer versions of windows or powershell (unsure of
+# the specifics). Since we can only get pipeline, verbose, warning and debug output, we
+# have our own logging function and call this to capture a nice, clean sequence of events
+# which get "returned". The upstream ruby script that calls this to initiate a patching run
+# includes this as the 'debug' data in the task result. The code also saves a json file with
+# the update results, and outputs this prefixed with '##Output File is'. The ruby script
+# finds this and reads the file to get the list of updates and installation status as required.
+# There may be nicer ways of doing this - e.g. detecting the invoke type and using native
+# write- cmdlets, or detecting the windows version and using the information stream where it
+# exists, however this is probably not necessary. The intended use case for this code is from
+# the os_patching::patch_servers task, which won't return real-time line-by-line updates anyway
+# so having all the output returned after everything is done in this script is really only an
+# issue when developing.
+
+# Also note we pass the script block a pscustomobject with all the relevant script parameters.
+# This is because the registered job method of passing an ordered sequence of arguments, rather
+# than a parameter block is a bit clunky and unreliable. Passing a single argument with parameters
+# in a manipulateable block was found to be more consistent and reliable.
+
+
 [CmdletBinding(defaultparametersetname = "InstallUpdates")]
 param(
     # refresh fact mode
@@ -88,6 +110,10 @@ $error.Clear()
 # Set error action preference to stop. Trap ensures all errors are caught
 $ErrorActionPreference = "stop"
 
+# ------------------------------------------------------------------------------------------------------------------------
+# Start main script functions
+# ------------------------------------------------------------------------------------------------------------------------
+
 Function Get-LockFile {
     $lockFileOk = $false
     # create lock file if it doesn't exist
@@ -95,7 +121,6 @@ Function Get-LockFile {
         Add-LogEntry -Output Verbose "Lock file found."
         # if it does exist, check if there is a PID in it
         $lockFileContent = Get-content $lockfile
-        
 
         if (@($lockFileContent).count -gt 1) {
             # more than one line in lock file. this shouldn't be possible
@@ -127,11 +152,12 @@ Function Get-LockFile {
                 $lockFileOk = $true
             }
         }
-    } else {
+    }
+    else {
         # lock file doesn't exist
         $lockFileOk = $true
     }
-    
+
     Add-LogEntry -Output Verbose "Lock File OK is $lockFileOk"
 
     if ($lockFileOk) {
@@ -147,21 +173,23 @@ Function Get-LockFile {
 }
 
 Function Remove-LockFile {
-    Add-LogEntry -Output Verbose "Removing lock file"
+    Add-LogEntry -Output Verbose "Removing lock file if it exists"
     # remove the lock file
-    Try {
-        Remove-Item $LockFile -Force -Confirm:$false
-    }
-    catch {
-        Add-LogEntry -Output Error "Error removing existsing lockfile." -ErrorAction Continue
-        Exit 190
+    if (Test-Path $LockFile) {
+        Try {
+            Remove-Item $LockFile -Force -Confirm:$false
+        }
+        catch {
+            Add-LogEntry -Output Error "Error removing existing lockfile."
+            Exit 190
+        }
     }
 }
 
 Function Invoke-AsCommand {
     Add-LogEntry "Running code as a local script block via Invoke-Command"
 
-    Invoke-Command -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams    
+    Invoke-Command -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams
 }
 
 Function Invoke-AsScheduledTask {
@@ -173,7 +201,7 @@ Function Invoke-AsScheduledTask {
 
     Add-LogEntry "Running code as a scheduled task"
 
-    if (Get-ScheduledJob $TaskName -ErrorAction SilentlyContinue) { 
+    if (Get-ScheduledJob $TaskName -ErrorAction SilentlyContinue) {
         Add-LogEntry -Output Verbose "Removing existing scheduled task first"
         Try {
             Unregister-ScheduledJob $TaskName
@@ -259,7 +287,8 @@ Function Invoke-AsScheduledTask {
         Add-LogEntry -Output Verbose "Task still seems to be running, stopping it before unregistering it"
         try {
             $task_to_stop.Stop()
-        } catch {
+        }
+        catch {
             # sometimes the task will stop just before we call stop here
             # catch error and make note of it in the log just in case it's something else
             Add-LogEntry -Output Verbose "Error caught while stopping scheduled task. Continuing anyway: $($_.exception.ToString())"
@@ -269,20 +298,32 @@ Function Invoke-AsScheduledTask {
     Unregister-ScheduledJob $TaskName
 
     # write any verbose output
-    Write-Verbose "Verbose output from scheduled task follows, this will not be in sync with any non-verbose output"
-    $job.Verbose | Write-Verbose
+    if ($null -ne $job.Verbose) {
+        Write-Verbose "Verbose output from scheduled task follows, this will not be in sync with any non-verbose output"
+        $job.Verbose | Write-Verbose
+    }
 
     # return job output to pipeline
     $job.Output # pipeline
 
     # return any error output and exit in a controlled fashion
     if ($job.error) {
-        Write-Error "Error returned from scriptblock:" -ErrorAction Continue
-        $job.Error | Add-LogEntry -Output Error
+        #Write-Error "Error returned from scriptblock: " -ErrorAction Continue
+        #$job.Error | Add-LogEntry -Output Error
+
+        $job.Error
         Remove-LockFile
         exit 166
     }
 }
+
+# ------------------------------------------------------------------------------------------------------------------------
+# End main script functions
+# ------------------------------------------------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------------------------------------------------
+# Start functions common to the main script and the script block
+# ------------------------------------------------------------------------------------------------------------------------
 
 $commonFunctions = {
     Function Add-LogEntry {
@@ -297,7 +338,7 @@ $commonFunctions = {
             [parameter(ValueFromPipeline, Mandatory)]
             [string[]]$logEntry,
 
-            [ValidateSet('info','error','warning','verbose','debug')]
+            [ValidateSet('info', 'error', 'warning', 'verbose', 'debug')]
             [string]$Output = 'info',
 
             [switch]$FileOnly
@@ -305,19 +346,26 @@ $commonFunctions = {
         begin {}
         process {
             foreach ($entry in $logEntry) {
+                # if logging an error, we don't want multiple write-errors done
+                # as each one incudes a line reference and it gets messy
+                # so just output the entire object before we split
+                if ($Output -eq "error") {
+                    Write-Error ($logEntry -join '`n') -ErrorAction Continue # so we don't exit here
+                }
+
                 $thisEntry = $entry.split("`n")
 
                 foreach ($line in $thisEntry) {
-                    
+
                     if (-not $FileOnly) {
-                        Switch ($Output){
+                        Switch ($Output) {
                             'info' {
                                 $logPrefix = 'INFO:    '
                                 Write-Host $line
                             }
                             'error' {
                                 $logPrefix = 'ERROR:   '
-                                Write-Error $line -ErrorAction Continue # so we don't exit here
+                                # sent to console above
                             }
                             'warning' {
                                 $logPrefix = 'WARNING: '
@@ -332,7 +380,7 @@ $commonFunctions = {
                                 Write-Debug $line
                             }
                         }
-                        
+
                         # prefix with date/time and prefix calculated above
                         $thisEntry = "{0:yyyy-MM-dd HH:mm:ss} {1} {2}" -f (Get-Date), $logPrefix, $line
                     }
@@ -341,10 +389,12 @@ $commonFunctions = {
                         # no formatting
                         $thisEntry = $line
                     }
-                    
-                    # add to script scope variable
-                    if (Test-Path -Path Variable:Script:log) {
-                        $script:log += $logEntry
+
+                    # add to script scope variable if it exists and we're doing an info log
+                    # this is to cater for the info / host stream not being available in older versions
+                    # of windows or powershell
+                    if ($Output -eq "info" -and (Test-Path -Path Variable:Script:log)) {
+                        $script:log += $line
                     }
 
                     # get log file from params object if executing in script block
@@ -354,7 +404,6 @@ $commonFunctions = {
 
                     # add to log file
                     Add-Content -Path $logFile -Value $thisEntry
-
                 }
             }
         }
@@ -365,43 +414,13 @@ $commonFunctions = {
 # dot-source common functions so we can use them
 . $commonFunctions
 
-# trap
-trap {
-    # using write-error so error goes to stderr which ruby picks up
-    # erroraction continue ensures execution doesn't stop until our controlled exit
-    Write-Error -ErrorAction Continue "Unhandled exception caught in main script:"
-    Write-Error -ErrorAction Continue $_.exception.ToString()                                          # Error message
-    Write-Error -ErrorAction Continue $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
-    # remove lockfile
-    Remove-LockFile
-    # exit
-    exit 165
-}
+# ------------------------------------------------------------------------------------------------------------------------
+# End functions common to the main script and the script block
+# ------------------------------------------------------------------------------------------------------------------------
 
-# main script code is here!
-
-# Script block for invoke-command (local) or scheduled task
-
-# Note that due to the use of a scheduled job, and allowing for compatibility with older
-# versions of windows, we actually can't get the data returned from write-host back. This
-# 'information' stream only exists on newer versions of windows or powershell (unsure of
-# the specifics). Since we can only get pipeline, verbose, warning and debug output, we
-# have our own logging function and call this to capture a nice, clean sequence of events
-# which get "returned". The upstream ruby script that calls this to initiate a patching run
-# includes this as the 'debug' data in the task result. The code also saves a json file with
-# the update results, and outputs this prefixed with '##Output File is'. The ruby script
-# finds this and reads the file to get the list of updates and installation status as required.
-# There may be nicer ways of doing this - e.g. detecting the invoke type and using native
-# write- cmdlets, or detecting the windows version and using the information stream where it
-# exists, however this is probably not necessary. The intended use case for this code is from
-# the os_patching::patch_servers task, which won't return real-time line-by-line updates anyway
-# so having all the output returned after everything is done in this script is really only an
-# issue when developing.
-
-# Also note we pass the script block a pscustomobject with all the relevant script parameters.
-# This is because the registered job method of passing an ordered sequence of arguments, rather
-# than a parameter block is a bit clunky and unreliable. Passing a single argument with parameters
-# in a manipulateable block was found to be more consistent and reliable.
+# ------------------------------------------------------------------------------------------------------------------------
+# Start script block
+# ------------------------------------------------------------------------------------------------------------------------
 
 $scriptBlock = {
     [CmdletBinding()]
@@ -430,11 +449,8 @@ $scriptBlock = {
     # trap
     trap {
         # using write-error so error goes to stderr which ruby picks up
-        # erroraction continue ensures execution doesn't stop until our controlled exit
-        Write-Error -ErrorAction Continue "Unhandled exception caught in scriptblock:"
-        Write-Error -ErrorAction Continue $_.exception.ToString()                                          # Error message
-        Write-Error -ErrorAction Continue $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
-        exit 166
+        Add-LogEntry ("Unhandled exception caught in scriptblock: {0} {1} " -f $_.exception.Message, $_.invocationinfo.positionmessage) -Output Error
+        #exit 166
     }
 
     #
@@ -444,7 +460,7 @@ $scriptBlock = {
     Function Get-WUSession {
         # returns a microsoft update session object
         Write-Debug "Get-WUSession: Creating update session object"
-        New-Object -ComObject 'Microsoft.Update.Session' 
+        New-Object -ComObject 'Microsoft.Update.Session'
     }
 
     Function Get-WUUpdateCollection {
@@ -463,7 +479,7 @@ $scriptBlock = {
         if (Get-ChildItem "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -EA Ignore) { $rebootPending = $true }
         if (Get-Item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -EA Ignore) { $rebootPending = $true }
         if (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Name PendingFileRenameOperations -EA Ignore) { $rebootPending = $true }
-        try { 
+        try {
             $util = [wmiclass]"\\.\root\ccm\clientsdk:CCM_ClientUtilities"
             $status = $util.DetermineIfRebootPending()
             if (($null -ne $status) -and $status.RebootPending) {
@@ -471,7 +487,7 @@ $scriptBlock = {
             }
         }
         catch {}
- 
+
         if ($rebootPending) { Add-LogEntry "A reboot is required" }
 
         # return result
@@ -542,13 +558,13 @@ $scriptBlock = {
             $updates = $updateSearcher.Search($Params.UpdateCriteria).Updates
         }
         catch {
-            # exit in a controlled fashion with a helpul error message
+            # exit in a controlled fashion with a helpful error message
             Write-Error -ErrorAction Continue "Unable to search for updates. Is your update source (e.g. WSUS/WindowsUpdate) available?"
             Write-Error -ErrorAction Continue $_.exception.ToString()                                          # Error message
             Write-Error -ErrorAction Continue $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
             Exit 167
         }
-        
+
 
         $updateCount = @($updates).count
 
@@ -569,7 +585,7 @@ $scriptBlock = {
         # filter to security updates
         # add a filterable categories parameter, then filter only to updates that include the security classification
         $secUpdates = $Updates | Add-Member -MemberType ScriptProperty -Name "CategoriesText" -value {$This.Categories | Select-Object -expandproperty Name} -PassThru | Where-Object {$_.CategoriesText -contains "Security Updates"}
-        
+
         # count them
         if ($secUpdates) {
             $secUpdateCount = @($secUpdates).count
@@ -610,7 +626,7 @@ $scriptBlock = {
         # get update count
         $updateCount = @($updatesToInstall).count # ensure it's an array so count property exists
 
-        if ($updateCount -gt 0) { 
+        if ($updateCount -gt 0) {
             # we need to install updates
 
             # download updates if needed. No output from this function
@@ -706,7 +722,7 @@ $scriptBlock = {
                     Break
                 }
             }
-            
+
             Add-LogEntry "Installing update $($counter)/$(@($updatesToInstall).Count): $($update.Title)"
 
             # clear update collection...
@@ -741,13 +757,13 @@ $scriptBlock = {
             }
 
             # increment counter
-            $counter++            
+            $counter++
         }
         # return results
         $updateInstallResults
     }
 
-    Add-LogEntry "os_patching_windows scriptblock started"
+    Add-LogEntry "os_patching_windows scriptblock: starting"
 
     #create update session
     $wuSession = Get-WUSession
@@ -788,24 +804,42 @@ $scriptBlock = {
         }
     }
 
-    Add-LogEntry "os_patching_windows scriptblock finished"
+    Add-LogEntry "os_patching_windows scriptblock: finished"
 
     # return log
     $script:log
 }
 
-# main code
+# ------------------------------------------------------------------------------------------------------------------------
+# End script block
+# ------------------------------------------------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------------------------------------------------
+# Start main script code
+# ------------------------------------------------------------------------------------------------------------------------
+
+# trap all unhandled exceptions
+trap {
+    # using write-error so error goes to stderr which ruby picks up
+    Add-LogEntry ("Unhandled exception caught in main script: {0} {1} " -f $_.exception.Message, $_.invocationinfo.positionmessage) -Output Error
+    # remove lockfile
+    Remove-LockFile
+    # exit
+    exit 165
+}
+
+# add some log entries
 Add-LogEntry -FileOnly ('-' * 200)
-Add-LogEntry "os_patching_windows script started"
+Add-LogEntry "os_patching_windows: started"
 
 # check and/or create lock file
 Get-Lockfile
 
 #build parameter PSCustomObject for passing to the scriptblock
 $scriptBlockParams = [PSCustomObject]@{
-    RefreshFacts      = $RefreshFacts 
-    SecurityOnly      = $SecurityOnly    
-    UpdateCriteria    = $UpdateCriteria    
+    RefreshFacts      = $RefreshFacts
+    SecurityOnly      = $SecurityOnly
+    UpdateCriteria    = $UpdateCriteria
     OnlyXUpdates      = $OnlyXUpdates
     Timeout           = $Timeout
     DebugPreference   = $DebugPreference
@@ -842,4 +876,4 @@ else {
 # remove lock file
 Remove-LockFile
 
-Add-LogEntry "os_patching_windows script finished"
+Add-LogEntry "os_patching_windows: finished"
