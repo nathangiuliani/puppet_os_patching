@@ -377,7 +377,7 @@ $commonFunctions = {
                             }
                         }
 
-                        # prefix with date/time and prefix calculated above
+                        # prefix with date/time, pid, and output type
                         $thisEntry = "{0:yyyy-MM-dd HH:mm:ss} {1,-6} [{2,-7}] {3}" -f (Get-Date), $PID, $Output.toupper(), $line
                     }
                     else {
