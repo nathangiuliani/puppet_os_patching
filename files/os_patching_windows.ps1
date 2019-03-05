@@ -124,9 +124,7 @@ Function Get-LockFile {
 
         if (@($lockFileContent).count -gt 1) {
             # more than one line in lock file. this shouldn't be possible
-            # exit in a controlled fashion
-            Add-LogEntry -Output Error "Error - more than one line in lock file."
-            Exit 187
+            Throw "Error - more than one line in lock file."
         }
         else {
             Add-LogEntry -Output Verbose "Found PID $lockFileContent in lock file. Checking it"
@@ -140,8 +138,7 @@ Function Get-LockFile {
                 # check the path is powershell
                 if ($process.path -match "powershell.exe") {
                     # most likely is another copy of this script
-                    Add-LogEntry "Lock file found, it appears PID $($process.id) is another copy of this script. Exiting."
-                    Exit 188
+                    Throw "Lock file found, it appears PID $($process.id) is another copy of this script. Exiting."
                 }
             }
             else {
@@ -166,8 +163,7 @@ Function Get-LockFile {
             $PID | Out-File $LockFile -Force
         }
         catch {
-            Add-LogEntry -Output Error "Error saving lockfile."
-            Exit 189
+            Throw "Error saving lockfile."
         }
     }
 }
@@ -180,8 +176,7 @@ Function Remove-LockFile {
             Remove-Item $LockFile -Force -Confirm:$false
         }
         catch {
-            Add-LogEntry -Output Error "Error removing existing lockfile."
-            Exit 190
+            Throw "Error removing existing lockfile."
         }
     }
 }
@@ -204,11 +199,10 @@ Function Invoke-AsScheduledTask {
     if (Get-ScheduledJob $TaskName -ErrorAction SilentlyContinue) {
         Add-LogEntry -Output Verbose "Removing existing scheduled task first"
         Try {
-            Unregister-ScheduledJob $TaskName
+            Unregister-ScheduledJob $TaskName -Force
         }
         Catch {
-            Add-LogEntry -Output Error "Unable to remove existing scheduled task, is another copy of this script still running?"
-            Exit 191
+            Throw "Unable to remove existing scheduled task, is another copy of this script still running?"
         }
     }
 
@@ -217,7 +211,7 @@ Function Invoke-AsScheduledTask {
     # define scheduled task trigger
     $trigger = @{
         Frequency = "Once" # (or Daily, Weekly, AtStartup, AtLogon)
-        At        = $(Get-Date).AddSeconds(2) # in 2 seconds time
+        At        = $(Get-Date).AddSeconds(10) # in 10 seconds time
     }
 
     Register-ScheduledJob -name $TaskName -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams -Trigger $trigger -InitializationScript $commonFunctions | Out-Null
@@ -257,8 +251,14 @@ Function Invoke-AsScheduledTask {
     # set some arbitary limit (e.g. 3 hours) for the maximum length of a task run and then forcefully
     # terminate the job, which doesn't seem to be a good idea
 
+    $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
+
     $job = $null
     while ($null -eq $job) {
+        if ($stopWatch.ElapsedMilliseconds -gt 60000) {
+            throw "Error - scheduled task failed to start within 1 minute"
+        }
+
         try {
             $job = wait-job $TaskName
         }
@@ -295,7 +295,7 @@ Function Invoke-AsScheduledTask {
         }
     }
 
-    Unregister-ScheduledJob $TaskName
+    Unregister-ScheduledJob $TaskName -Force
 
     # write any verbose output
     if ($null -ne $job.Verbose) {
@@ -308,10 +308,11 @@ Function Invoke-AsScheduledTask {
 
     # return any error output and exit in a controlled fashion
     if ($job.error) {
+        # error output is already in log from scriptblock, no need to add logentry again
+        # dump it to the console just in case this is being run interactively
         #Write-Error "Error returned from scriptblock: " -ErrorAction Continue
-        #$job.Error | Add-LogEntry -Output Error
+        $job.Error | Write-Error
 
-        $job.Error
         Remove-LockFile
         exit 166
     }
@@ -360,29 +361,24 @@ $commonFunctions = {
                     if (-not $FileOnly) {
                         Switch ($Output) {
                             'info' {
-                                $logPrefix = 'INFO:    '
                                 Write-Host $line
                             }
                             'error' {
-                                $logPrefix = 'ERROR:   '
                                 # sent to console above
                             }
                             'warning' {
-                                $logPrefix = 'WARNING: '
                                 Write-Warning $line
                             }
                             'verbose' {
-                                $logPrefix = 'VERBOSE: '
                                 Write-Verbose $line
                             }
                             'debug' {
-                                $logPrefix = 'DEBUG:   '
                                 Write-Debug $line
                             }
                         }
 
                         # prefix with date/time and prefix calculated above
-                        $thisEntry = "{0:yyyy-MM-dd HH:mm:ss} {1} {2}" -f (Get-Date), $logPrefix, $line
+                        $thisEntry = "{0:yyyy-MM-dd HH:mm:ss} {1,-6} [{2,-7}] {3}" -f (Get-Date), $PID, $Output.toupper(), $line
                     }
                     else {
                         # File only
@@ -449,8 +445,7 @@ $scriptBlock = {
     # trap
     trap {
         # using write-error so error goes to stderr which ruby picks up
-        Add-LogEntry ("Unhandled exception caught in scriptblock: {0} {1} " -f $_.exception.Message, $_.invocationinfo.positionmessage) -Output Error
-        #exit 166
+        Add-LogEntry ("Exception caught in scriptblock: {0} {1} " -f $_.exception.Message, $_.invocationinfo.positionmessage) -Output Error
     }
 
     #
@@ -558,13 +553,8 @@ $scriptBlock = {
             $updates = $updateSearcher.Search($Params.UpdateCriteria).Updates
         }
         catch {
-            # exit in a controlled fashion with a helpful error message
-            Write-Error -ErrorAction Continue "Unable to search for updates. Is your update source (e.g. WSUS/WindowsUpdate) available?"
-            Write-Error -ErrorAction Continue $_.exception.ToString()                                          # Error message
-            Write-Error -ErrorAction Continue $_.invocationinfo.positionmessage.ToString()                     # Line the error was generated on
-            Exit 167
+            Throw "Unable to search for updates. Is your update source (e.g. WSUS/WindowsUpdate) available? Error: $($_.exception.message)"
         }
-
 
         $updateCount = @($updates).count
 
@@ -821,7 +811,7 @@ $scriptBlock = {
 # trap all unhandled exceptions
 trap {
     # using write-error so error goes to stderr which ruby picks up
-    Add-LogEntry ("Unhandled exception caught in main script: {0} {1} " -f $_.exception.Message, $_.invocationinfo.positionmessage) -Output Error
+    Add-LogEntry ("Exception caught: {0} {1} " -f $_.exception.Message, $_.invocationinfo.positionmessage) -Output Error
     # remove lockfile
     Remove-LockFile
     # exit
