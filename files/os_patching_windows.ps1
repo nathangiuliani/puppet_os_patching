@@ -97,7 +97,8 @@ param(
 
     [String]$LockFile = "$($env:programdata)\os_patching\os_patching_windows.lock",
 
-    [String]$LogFile = "$($env:programdata)\os_patching\os_patching_windows.log"
+    #[String]$LogFile = "$($env:programdata)\os_patching\os_patching_windows.log"
+    [String]$LogDir = "$($env:programdata)\os_patching"
 )
 
 
@@ -113,6 +114,11 @@ $ErrorActionPreference = "stop"
 # ------------------------------------------------------------------------------------------------------------------------
 # Start main script functions
 # ------------------------------------------------------------------------------------------------------------------------
+
+function Get-LogFilename {
+    # generate log file name, join it with LogDir and return it
+    Join-Path -Path $LogDir -ChildPath ("os_patching-{0:yyyy}_{0:MM}_{0:dd}-{0:HH}_{0:mm}_{0:ss}.log" -f (Get-Date))
+}
 
 Function Get-LockFile {
     $lockFileOk = $false
@@ -818,8 +824,9 @@ trap {
     exit 165
 }
 
-# add some log entries
-Add-LogEntry -FileOnly ('-' * 200)
+# get log file name
+$LogFile = Get-LogFilename
+
 Add-LogEntry "os_patching_windows: started"
 
 # check and/or create lock file
