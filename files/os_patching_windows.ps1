@@ -115,12 +115,31 @@ $ErrorActionPreference = "stop"
 # Start main script functions
 # ------------------------------------------------------------------------------------------------------------------------
 
-function Get-LogFilename {
-    # generate log file name, join it with LogDir and return it
-    Join-Path -Path $LogDir -ChildPath ("os_patching-{0:yyyy}_{0:MM}_{0:dd}-{0:HH}_{0:mm}_{0:ss}.log" -f (Get-Date))
+function Get-WuApiAvailable {
+    # return true if Windows Update API is available (e.g. local session), otherwise false
+    Add-LogEntry -Output Verbose "Trying to access the windows update API locally..."
+
+    try {
+        # try to create a windows update downloader
+        (New-Object -ComObject Microsoft.Update.Session).CreateUpdateDownloader() | Out-Null
+        Add-LogEntry -Output Verbose "Accessing the windows update API locally succeeded"
+        # return true
+        $true
+    }
+    catch [System.Management.Automation.MethodInvocationException], [System.UnauthorizedAccessException] {
+        # first exception type seems to be thrown in earlier versions of windows
+        # second in the later (e.g. 2016)
+        Add-LogEntry -Output Verbose "Accessing the windows update API locally failed"
+        # return false
+        $false
+    }
+    catch {
+        throw "Unexpected error accessing windows update API."
+    }
+
 }
 
-Function Get-LockFile {
+function Get-LockFile {
     $lockFileOk = $false
     # create lock file if it doesn't exist
     if (Test-Path $LockFile) {
@@ -167,6 +186,8 @@ Function Get-LockFile {
         # if it isn't, put this execution's PID in the lock file
         try {
             $PID | Out-File $LockFile -Force
+            # return true
+            $true
         }
         catch {
             Throw "Error saving lockfile."
@@ -174,7 +195,7 @@ Function Get-LockFile {
     }
 }
 
-Function Remove-LockFile {
+function Remove-LockFile {
     Add-LogEntry -Output Verbose "Removing lock file if it exists"
     # remove the lock file
     if (Test-Path $LockFile) {
@@ -187,13 +208,13 @@ Function Remove-LockFile {
     }
 }
 
-Function Invoke-AsCommand {
+function Invoke-AsCommand {
     Add-LogEntry "Running code as a local script block via Invoke-Command"
 
     Invoke-Command -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams
 }
 
-Function Invoke-AsScheduledTask {
+function Invoke-AsScheduledTask {
     [CmdletBinding()]
     param (
         [string]$TaskName = "os_patching job",
@@ -220,7 +241,7 @@ Function Invoke-AsScheduledTask {
         At        = $(Get-Date).AddSeconds(10) # in 10 seconds time
     }
 
-    Register-ScheduledJob -name $TaskName -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams -Trigger $trigger -InitializationScript $commonFunctions | Out-Null
+    Register-ScheduledJob -name $TaskName -ScriptBlock $scriptBlock -ArgumentList $scriptBlockParams -Trigger $trigger -InitializationScript $commonfunctions | Out-Null
 
     # Task state reference: https://docs.microsoft.com/en-us/windows/desktop/taskschd/registeredtask-state
     $taskStates = @{
@@ -320,7 +341,7 @@ Function Invoke-AsScheduledTask {
         $job.Error | Write-Error
 
         Remove-LockFile
-        exit 166
+        exit 3
     }
 }
 
@@ -332,8 +353,8 @@ Function Invoke-AsScheduledTask {
 # Start functions common to the main script and the script block
 # ------------------------------------------------------------------------------------------------------------------------
 
-$commonFunctions = {
-    Function Add-LogEntry {
+$commonfunctions = {
+    function Add-LogEntry {
         # function to add a log entry for our script block
         # takes the input and adds to a script-scope log variable, which is intended to
         # be an array
@@ -414,7 +435,7 @@ $commonFunctions = {
 }
 
 # dot-source common functions so we can use them
-. $commonFunctions
+. $commonfunctions
 
 # ------------------------------------------------------------------------------------------------------------------------
 # End functions common to the main script and the script block
@@ -458,19 +479,19 @@ $scriptBlock = {
     # functions
     #
 
-    Function Get-WUSession {
+    function Get-WUSession {
         # returns a microsoft update session object
         Write-Debug "Get-WUSession: Creating update session object"
         New-Object -ComObject 'Microsoft.Update.Session'
     }
 
-    Function Get-WUUpdateCollection {
+    function Get-WUUpdateCollection {
         #returns a microsoft update update collection object
         Write-Debug "Get-WUUpdateCollection: Creating update collection object"
         New-Object -ComObject Microsoft.Update.UpdateColl
     }
 
-    Function Get-PendingReboot {
+    function Get-PendingReboot {
         #Copied from http://ilovepowershell.com/2015/09/10/how-to-check-if-a-server-needs-a-reboot/
         #Adapted from https://gist.github.com/altrive/5329377
         #Based on <http://gallery.technet.microsoft.com/scriptcenter/Get-PendingReboot-Query-bdb79542>
@@ -495,7 +516,7 @@ $scriptBlock = {
         $rebootPending
     }
 
-    Function Invoke-RefreshPuppetFacts {
+    function Invoke-RefreshPuppetFacts {
         # refreshes puppet facts used by os_patching module
         # inputs - $UpdateSession - microsoft update session object
         # outpts - none, saves puppet fact files only
@@ -540,7 +561,7 @@ $scriptBlock = {
         & $puppetCmd facts upload --color=false
     }
 
-    Function Get-UpdateSearch {
+    function Get-UpdateSearch {
         # performs an update search
         # inputs: update session
         # outputs: updates from search result
@@ -570,7 +591,7 @@ $scriptBlock = {
         $updates
     }
 
-    Function Get-SecurityUpdates {
+    function Get-SecurityUpdates {
         # filters update list to security only
         # inputs - update list from an update search
         # outputs - filtered list
@@ -593,7 +614,7 @@ $scriptBlock = {
         }
     }
 
-    Function Invoke-UpdateRun {
+    function Invoke-UpdateRun {
         # perform an update run
         # inputs - update session
         # outputs - update run results
@@ -638,7 +659,7 @@ $scriptBlock = {
         }
     }
 
-    Function Invoke-DownloadUpdates {
+    function Invoke-DownloadUpdates {
         # download updates if required
         # inputs  - UpdateSession     - update session
         #         - UpdatesToDownload - update collection (of updates to download)
@@ -677,7 +698,7 @@ $scriptBlock = {
         }
     }
 
-    Function Invoke-InstallUpdates {
+    function Invoke-InstallUpdates {
         # install updates
         # inputs  - UpdateSession    - update session
         #         - UpdatesToInstall - update collection (of updates to install)
@@ -783,8 +804,7 @@ $scriptBlock = {
         $updateRunResults = Invoke-UpdateRun -UpdateSession $wuSession
 
         # calculate filename for results file
-        $outputFileName = "os_patching_results_{0:yyyy-MM-dd-HH-mm}.json" -f (Get-Date)
-        $outputFilePath = Join-Path -Path $env:temp -ChildPath $outputFileName
+        $outputFilePath = Join-Path -Path $env:temp -ChildPath ("os_patching-results_{0:yyyy_MM_dd-HH_mm_ss}.json" -f (Get-Date))
 
         if ($null -ne $updateRunResults) {
             # output as JSON with ASCII encoding which plays nice with puppet etc
@@ -818,19 +838,19 @@ $scriptBlock = {
 trap {
     # using write-error so error goes to stderr which ruby picks up
     Add-LogEntry ("Exception caught: {0} {1} " -f $_.exception.Message, $_.invocationinfo.positionmessage) -Output Error
-    # remove lockfile
-    Remove-LockFile
+    # remove lockfile if lockfileused variable exixts and is true
+    if (Get-Variable lockFileUsed -ErrorAction SilentlyContinue) { if ($lockFileUsed) { Remove-LockFile }}
     # exit
-    exit 165
+    exit 2
 }
 
 # get log file name
-$LogFile = Get-LogFilename
+$LogFile = Join-Path -Path $LogDir -ChildPath ("os_patching-{0:yyyy_MM_dd-HH_mm_ss}.log" -f (Get-Date))
 
 Add-LogEntry "os_patching_windows: started"
 
 # check and/or create lock file
-Get-Lockfile
+$lockFileUsed = Get-Lockfile
 
 #build parameter PSCustomObject for passing to the scriptblock
 $scriptBlockParams = [PSCustomObject]@{
@@ -844,20 +864,9 @@ $scriptBlockParams = [PSCustomObject]@{
     LogFile           = $LogFile
 }
 
-Add-LogEntry -Output Verbose "Trying to access the windows update API locally..."
-
-try {
-    # try to create a windows update downloader
-    (New-Object -ComObject Microsoft.Update.Session).CreateUpdateDownloader() | Out-Null
-    $localSession = $true
-    Add-LogEntry -Output Verbose "Accessing the windows update API locally succeeded"
-}
-catch [System.Management.Automation.MethodInvocationException], [System.UnauthorizedAccessException] {
-    # first exception type seems to be thrown in earlier versions of windows
-    # second in the later (e.g. 2016)
-    $localSession = $false
-    Add-LogEntry -Output Verbose "Accessing the windows update API locally failed"
-}
+# if not refreshing fact, see if WU API is available (e.g. running in a local session)
+# refresh facts is always in an invoke-command as the update search API works in a remote session
+if (-not $RefreshFacts) { $localSession = Get-WuApiAvailable } else { $localSession = $null }
 
 # run either in an invoke-command or a scheduled task based on the result above and provided command line parameters
 # refresh facts is always in an invoke-command as the update search API works in a remote session
