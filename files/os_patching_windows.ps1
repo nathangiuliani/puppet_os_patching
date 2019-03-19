@@ -863,37 +863,43 @@ Add-LogEntry "os_patching_windows: started"
 # check and/or create lock file
 $lockFileUsed = Get-Lockfile
 
-#build parameter PSCustomObject for passing to the scriptblock
-$scriptBlockParams = [PSCustomObject]@{
-    RefreshFacts      = $RefreshFacts
-    SecurityOnly      = $SecurityOnly
-    UpdateCriteria    = $UpdateCriteria
-    OnlyXUpdates      = $OnlyXUpdates
-    Timeout           = $Timeout
-    DebugPreference   = $DebugPreference
-    VerbosePreference = $VerbosePreference
-    LogFile           = $LogFile
+# put all code from here in a try block, so we can use finally to ensure the lock file is removed
+# even when the script is aborted with ctrl-c
+
+try {
+    #build parameter PSCustomObject for passing to the scriptblock
+    $scriptBlockParams = [PSCustomObject]@{
+        RefreshFacts      = $RefreshFacts
+        SecurityOnly      = $SecurityOnly
+        UpdateCriteria    = $UpdateCriteria
+        OnlyXUpdates      = $OnlyXUpdates
+        Timeout           = $Timeout
+        DebugPreference   = $DebugPreference
+        VerbosePreference = $VerbosePreference
+        LogFile           = $LogFile
+    }
+
+    # if not refreshing fact, see if WU API is available (e.g. running in a local session)
+    # refresh facts is always in an invoke-command as the update search API works in a remote session
+    if (-not $RefreshFacts) { $localSession = Get-WuApiAvailable } else { $localSession = $null }
+
+    # run either in an invoke-command or a scheduled task based on the result above and provided command line parameters
+    # refresh facts is always in an invoke-command as the update search API works in a remote session
+    if ((($localSession -or $ForceLocal) -and -not $ForceSchedTask) -or $RefreshFacts) {
+        if ($ForceLocal) { Add-LogEntry -Output Warning "Forced running locally, this may fail if in a remote session" }
+        Invoke-AsCommand
+    }
+    else {
+        if ($ForceSchedTask) { Add-LogEntry -Output Warning "Forced running in a scheduled task, this may not be necessary if running in a local session" }
+        Invoke-AsScheduledTask
+    }
+
+    # clean log files
+    Invoke-CleanLogFile
 }
+finally {
+    # remove lock file
+    Remove-LockFile
 
-# if not refreshing fact, see if WU API is available (e.g. running in a local session)
-# refresh facts is always in an invoke-command as the update search API works in a remote session
-if (-not $RefreshFacts) { $localSession = Get-WuApiAvailable } else { $localSession = $null }
-
-# run either in an invoke-command or a scheduled task based on the result above and provided command line parameters
-# refresh facts is always in an invoke-command as the update search API works in a remote session
-if ((($localSession -or $ForceLocal) -and -not $ForceSchedTask) -or $RefreshFacts) {
-    if ($ForceLocal) { Add-LogEntry -Output Warning "Forced running locally, this may fail if in a remote session" }
-    Invoke-AsCommand
+    Add-LogEntry "os_patching_windows: finished"
 }
-else {
-    if ($ForceSchedTask) { Add-LogEntry -Output Warning "Forced running in a scheduled task, this may not be necessary if running in a local session" }
-    Invoke-AsScheduledTask
-}
-
-# clean log files
-Invoke-CleanLogFile
-
-# remove lock file
-Remove-LockFile
-
-Add-LogEntry "os_patching_windows: finished"
