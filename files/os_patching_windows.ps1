@@ -102,7 +102,7 @@ param(
     [String]$LogDir = "$($env:programdata)\os_patching",
 
     # how long to retain log files
-    [Int32]$LogFileRetainDays = 5
+    [Int32]$LogFileRetainDays = 30
 )
 
 # strict mode
