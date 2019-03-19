@@ -95,12 +95,15 @@ param(
     [Parameter(ParameterSetName = "InstallUpdates")]
     [Int32]$OnlyXUpdates,
 
+    # path to lock file
     [String]$LockFile = "$($env:programdata)\os_patching\os_patching_windows.lock",
 
-    #[String]$LogFile = "$($env:programdata)\os_patching\os_patching_windows.log"
-    [String]$LogDir = "$($env:programdata)\os_patching"
-)
+    # path to logs directory
+    [String]$LogDir = "$($env:programdata)\os_patching",
 
+    # how long to retain log files
+    [Int32]$LogFileRetainDays = 30
+)
 
 # strict mode
 Set-StrictMode -Version 2
@@ -342,6 +345,14 @@ function Invoke-AsScheduledTask {
 
         Remove-LockFile
         exit 3
+    }
+}
+
+function Invoke-CleanLogFile {
+    # clean up logs older than $LogFileRetainDays days old
+    Get-ChildItem $LogDir -Filter os_patching*.log | Where-Object {$_.CreationTime -lt ([datetime]::Now.AddDays(-$LogFileRetainDays))} | ForEach-Object {
+        Add-LogEntry "Cleaning old log file $($_.BaseName)" -Output verbse
+        Remove-Item $_ -Force -Confirm:$false
     }
 }
 
@@ -878,6 +889,9 @@ else {
     if ($ForceSchedTask) { Add-LogEntry -Output Warning "Forced running in a scheduled task, this may not be necessary if running in a local session" }
     Invoke-AsScheduledTask
 }
+
+# clean log files
+Invoke-CleanLogFile
 
 # remove lock file
 Remove-LockFile
