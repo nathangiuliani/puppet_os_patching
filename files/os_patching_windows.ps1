@@ -849,8 +849,6 @@ $scriptBlock = {
 trap {
     # using write-error so error goes to stderr which ruby picks up
     Add-LogEntry ("Exception caught: {0} {1} " -f $_.exception.Message, $_.invocationinfo.positionmessage) -Output Error
-    # remove lockfile if lockfileused variable exixts and is true
-    if (Get-Variable lockFileUsed -ErrorAction SilentlyContinue) { if ($lockFileUsed) { Remove-LockFile }}
     # exit
     exit 2
 }
@@ -865,7 +863,6 @@ $lockFileUsed = Get-Lockfile
 
 # put all code from here in a try block, so we can use finally to ensure the lock file is removed
 # even when the script is aborted with ctrl-c
-
 try {
     #build parameter PSCustomObject for passing to the scriptblock
     $scriptBlockParams = [PSCustomObject]@{
@@ -898,6 +895,8 @@ try {
     Invoke-CleanLogFile
 }
 finally {
+    # this code is always executed, even when an exception is trapped during main script execution
+
     # remove lock file
     Remove-LockFile
 
