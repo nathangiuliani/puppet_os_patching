@@ -351,7 +351,7 @@ function Invoke-AsScheduledTask {
 function Invoke-CleanLogFile {
     # clean up logs older than $LogFileRetainDays days old
     Get-ChildItem $LogDir -Filter os_patching*.log | Where-Object {$_.CreationTime -lt ([datetime]::Now.AddDays(-$LogFileRetainDays))} | ForEach-Object {
-        Add-LogEntry "Cleaning old log file $($_.BaseName)" -Output verbse
+        Add-LogEntry "Cleaning old log file $($_.BaseName)" -Output Verbose
         Remove-Item $_ -Force -Confirm:$false
     }
 }
