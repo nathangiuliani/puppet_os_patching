@@ -185,7 +185,7 @@ function Get-LockFile {
         $lockFileOk = $true
     }
 
-    Add-LogEntry -Output Debug "Lock File OK is $lockFileOk"
+    Add-LogEntry -Output Debug "Get-LockFile: LockFileOK is $lockFileOk"
 
     if ($lockFileOk) {
         # if it isn't, put this execution's PID in the lock file
@@ -602,7 +602,9 @@ $scriptBlock = {
 
         $updateCount = @($updates).count
 
-        Add-LogEntry "Detected $updateCount updates are required in total (including security)"
+        Add-LogEntry "Detected $updateCount updates are required in total (including security):"
+
+        $updates | ForEach-Object { Add-LogEntry "  - $($_.title)" }
 
         # return updates
         $updates
@@ -624,7 +626,9 @@ $scriptBlock = {
         if ($secUpdates) {
             $secUpdateCount = @($secUpdates).count
 
-            Add-LogEntry "Detected $secUpdateCount of the required updates are security updates"
+            Add-LogEntry "Detected $secUpdateCount of the required updates are security updates:"
+
+            $secUpdates | ForEach-Object { Add-LogEntry "  - $($_.title)" }
 
             # return security updates
             $secUpdates
