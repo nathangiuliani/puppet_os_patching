@@ -142,7 +142,7 @@ function Get-WuApiAvailable {
 
 }
 
-function Get-LockFile {
+function Save-LockFile {
     # start assuming it's not OK to save a lock file
     $lockFileOk = $false
 
@@ -157,15 +157,13 @@ function Get-LockFile {
             Throw "Error - more than one line in lock file."
         }
         else {
-            Add-LogEntry -Output Verbose "Found PID $lockFileContent in lock file. Checking if this PID is PowerShell"
             # only one line in lock file
             # get process matching this PID
             $process = Get-Process | Where-Object {$_.Id -eq $lockFileContent}
 
             # if process exists
             if ($process) {
-                Add-LogEntry -Output Verbose "Checking process matching PID in lock file"
-                # check the path is powershell
+                # Check the path of the process matching PID in the lock file
                 if ($process.path -match "powershell.exe") {
                     # most likely is another copy of this script
                     Throw "Lock file found, it appears PID $($process.id) is another copy of this script. Exiting."
@@ -185,12 +183,10 @@ function Get-LockFile {
         $lockFileOk = $true
     }
 
-    Add-LogEntry -Output Debug "Get-LockFile: LockFileOK is $lockFileOk"
-
     if ($lockFileOk) {
         # if it isn't, put this execution's PID in the lock file
         try {
-            Add-LogEntry -Output Debug "Get-LockFile: Creating lock file"
+            Add-LogEntry -Output Verbose "Saving lock file"
             $PID | Out-File $LockFile -Force
             # return true
             $true
@@ -754,8 +750,8 @@ $scriptBlock = {
             # TODO: Be a bit smarter here, perhaps use SCCM's method of estimating 5 minutes
             # per update and 30 minutes per cumulative update?
             #
-            if ($null -ne $endTime) {
-                if ([datetime]::now -gt $endTime.AddMinutes(-5)) {
+            if ($null -ne $Params.endtime) {
+                if ([datetime]::now -gt $Params.endtime.AddMinutes(-5)) {
                     Add-LogEntry "Skipping remaining updates due to insufficient time"
                     Break
                 }
@@ -801,7 +797,7 @@ $scriptBlock = {
         $updateInstallResults
     }
 
-    Add-LogEntry "os_patching_windows scriptblock: starting"
+    Add-LogEntry -Output Verbose "os_patching_windows scriptblock: starting"
 
     #create update session
     $wuSession = Get-WUSession
@@ -811,16 +807,6 @@ $scriptBlock = {
         Invoke-RefreshPuppetFacts -UpdateSession $wuSession
     }
     else {
-        # first, calculate end time based on timeout parameter if it's been provided
-        if ($null -ne $Params.Timeout -and $Params.Timeout -ge 1) {
-            $endTime = [datetime]::now.AddSeconds($Params.Timeout)
-            Add-LogEntry "Timeout of $($Params.Timeout) seconds provided. Calculated target end time of update installation window as $endTime"
-        }
-        else {
-            $endTime = $null
-            Add-LogEntry "No timeout value provided, script will run until all updates are installed"
-        }
-
         # invoke update run, convert results to CSV and send down the pipeline
         $updateRunResults = Invoke-UpdateRun -UpdateSession $wuSession
 
@@ -841,7 +827,7 @@ $scriptBlock = {
         }
     }
 
-    Add-LogEntry "os_patching_windows scriptblock: finished"
+    Add-LogEntry -Output Verbose "os_patching_windows scriptblock: finished"
 
     # return log
     $script:log
@@ -868,8 +854,17 @@ $LogFile = Join-Path -Path $LogDir -ChildPath ("os_patching-{0:yyyy_MM_dd-HH_mm_
 
 Add-LogEntry "os_patching_windows: started"
 
+if ($null -ne $Timeout -and $Timeout -ge 1) {
+    $endTime = [datetime]::now.AddSeconds($Params.Timeout)
+    Add-LogEntry "Timeout of $($Timeout) seconds provided. Calculated target end time of update installation window as $endTime"
+}
+else {
+    $endTime = $null
+    Add-LogEntry "No timeout value provided, script will run until all updates are installed"
+}
+
 # check and/or create lock file
-$lockFileUsed = Get-Lockfile
+$lockFileUsed = Save-LockFile
 
 # put all code from here in a try block, so we can use finally to ensure the lock file is removed
 # even when the script is aborted with ctrl-c
@@ -880,7 +875,7 @@ try {
         SecurityOnly      = $SecurityOnly
         UpdateCriteria    = $UpdateCriteria
         OnlyXUpdates      = $OnlyXUpdates
-        Timeout           = $Timeout
+        EndTime           = $endTime
         DebugPreference   = $DebugPreference
         VerbosePreference = $VerbosePreference
         LogFile           = $LogFile
