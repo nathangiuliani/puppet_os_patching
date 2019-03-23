@@ -143,10 +143,12 @@ function Get-WuApiAvailable {
 }
 
 function Get-LockFile {
+    # start assuming it's not OK to save a lock file
     $lockFileOk = $false
-    # create lock file if it doesn't exist
+
+    # check if it exists already
     if (Test-Path $LockFile) {
-        Add-LogEntry -Output Verbose "Lock file found."
+        Add-LogEntry -Output Verbose "Existing lock file found."
         # if it does exist, check if there is a PID in it
         $lockFileContent = Get-content $lockfile
 
@@ -155,7 +157,7 @@ function Get-LockFile {
             Throw "Error - more than one line in lock file."
         }
         else {
-            Add-LogEntry -Output Verbose "Found PID $lockFileContent in lock file. Checking it"
+            Add-LogEntry -Output Verbose "Found PID $lockFileContent in lock file. Checking if this PID is PowerShell"
             # only one line in lock file
             # get process matching this PID
             $process = Get-Process | Where-Object {$_.Id -eq $lockFileContent}
@@ -183,11 +185,12 @@ function Get-LockFile {
         $lockFileOk = $true
     }
 
-    Add-LogEntry -Output Verbose "Lock File OK is $lockFileOk"
+    Add-LogEntry -Output Debug "Lock File OK is $lockFileOk"
 
     if ($lockFileOk) {
         # if it isn't, put this execution's PID in the lock file
         try {
+            Add-LogEntry -Output Debug "Get-LockFile: Creating lock file"
             $PID | Out-File $LockFile -Force
             # return true
             $true
@@ -203,11 +206,14 @@ function Remove-LockFile {
     # remove the lock file
     if (Test-Path $LockFile) {
         Try {
+            Add-LogEntry -Output Debug "Remove-LockFile: Lock file found, removing"
             Remove-Item $LockFile -Force -Confirm:$false
         }
         catch {
             Throw "Error removing existing lockfile."
         }
+    } else {
+        Add-LogEntry -Output Debug "Remove-LockFile: No existing lock file found"
     }
 }
 
