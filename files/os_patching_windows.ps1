@@ -24,8 +24,8 @@ Switch, when set the script will only install updates with a category that inclu
 .PARAMETER UpdateCriteria
 Criteria used for update detection. This ultimately drives which updates will be installed. The detault is "IsInstalled=0 and IsHidden=0" which should be suitable in most cases, and relies on your upstream update approvals. Note that this is not validated, if the syntax is not validated the script will fail. See MSDN doco for valid syntax - https://docs.microsoft.com/en-us/windows/desktop/api/wuapi/nf-wuapi-iupdatesearcher-search.
 
-.PARAMETER OnlyXUpdates
-Install only the first X numbmer of updates. For testing purposes.
+.PARAMETER MaxUpdates
+Install only the first X numbmer of updates (at most). Useful ror testing.
 #>
 
 
@@ -93,7 +93,7 @@ param(
     [Parameter(ParameterSetName = "InstallUpdates-Forcelocal")]
     [Parameter(ParameterSetName = "InstallUpdates-ForceSchedTask")]
     [Parameter(ParameterSetName = "InstallUpdates")]
-    [Int32]$OnlyXUpdates,
+    [Int32]$MaxUpdates,
 
     # path to lock file
     [String]$LockFile = "$($env:programdata)\os_patching\os_patching_windows.lock",
@@ -198,18 +198,15 @@ function Save-LockFile {
 }
 
 function Remove-LockFile {
-    Add-LogEntry -Output Verbose "Removing lock file if it exists"
-    # remove the lock file
+    # remove the lock file, if it exists
     if (Test-Path $LockFile) {
         Try {
-            Add-LogEntry -Output Debug "Remove-LockFile: Lock file found, removing"
+            Add-LogEntry -Output Verbose "Removing lock file"
             Remove-Item $LockFile -Force -Confirm:$false
         }
         catch {
             Throw "Error removing existing lockfile."
         }
-    } else {
-        Add-LogEntry -Output Debug "Remove-LockFile: No existing lock file found"
     }
 }
 
@@ -652,9 +649,10 @@ $scriptBlock = {
             $updatesToInstall = $allUpdates
         }
 
-        if ($Params.OnlyXUpdates -gt 0) {
-            Add-LogEntry "Selecting only the first $($Params.OnlyXUpdates) updates"
-            $updatesToInstall = $updatesToInstall | Select-Object -First $Params.OnlyXUpdates
+        # filter to maxupdates if required
+        if ($Params.MaxUpdates -gt 0) {
+            Add-LogEntry "Installing a maximum of $($Params.MaxUpdates) updates"
+            $updatesToInstall = $updatesToInstall | Select-Object -First $Params.MaxUpdates
         }
 
         # get update count
@@ -855,7 +853,7 @@ $LogFile = Join-Path -Path $LogDir -ChildPath ("os_patching-{0:yyyy_MM_dd-HH_mm_
 Add-LogEntry "os_patching_windows: started"
 
 if ($null -ne $Timeout -and $Timeout -ge 1) {
-    $endTime = [datetime]::now.AddSeconds($Params.Timeout)
+    $endTime = [datetime]::now.AddSeconds($Timeout)
     Add-LogEntry "Timeout of $($Timeout) seconds provided. Calculated target end time of update installation window as $endTime"
 }
 else {
@@ -874,7 +872,7 @@ try {
         RefreshFacts      = $RefreshFacts
         SecurityOnly      = $SecurityOnly
         UpdateCriteria    = $UpdateCriteria
-        OnlyXUpdates      = $OnlyXUpdates
+        MaxUpdates      = $MaxUpdates
         EndTime           = $endTime
         DebugPreference   = $DebugPreference
         VerbosePreference = $VerbosePreference
